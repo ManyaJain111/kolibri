@@ -55,6 +55,12 @@
       tabindex="-1"
       class="main"
     >
+      <h1
+        v-if="pageHeading"
+        class="visuallyhidden"
+      >
+        {{ pageHeading }}
+      </h1>
       <ContentPage
         ref="contentPage"
         class="content"
@@ -89,14 +95,6 @@
           v-for="activity in sidePanelContent.learning_activities"
           :key="activity"
           class="side-panel-chips"
-          :class="
-            $computedClass({
-              '::after': {
-                content: '',
-                flex: 'auto',
-              },
-            })
-          "
         >
           <LearningActivityChip
             class="chip"
@@ -176,6 +174,7 @@
   import SidePanelModal from 'kolibri-common/components/SidePanelModal';
   import useChannels from 'kolibri-common/composables/useChannels';
   import SkipNavigationLink from 'kolibri/components/SkipNavigationLink';
+  import { pageHeading } from 'kolibri/composables/usePageTitle';
   import { PageNames, ClassesPageNames } from '../constants';
   import useContentLink from '../composables/useContentLink';
   import useCoreLearn from '../composables/useCoreLearn';
@@ -195,23 +194,6 @@
 
   export default {
     name: 'TopicsContentPage',
-    metaInfo() {
-      return {
-        // Use arrow function to bind $tr to this component
-        titleTemplate: title => {
-          if (this.error) {
-            return this.$tr('kolibriTitleMessage', { title: this.$tr('errorPageTitle') });
-          }
-          if (!title) {
-            // If no child component sets title, it reads 'Kolibri'
-            return this.coreString('kolibriLabel');
-          }
-          // If child component sets title, it reads 'Child Title - Kolibri'
-          return this.$tr('kolibriTitleMessage', { title });
-        },
-        title: this.pageTitle,
-      };
-    },
     components: {
       AlsoInThis,
       AppError,
@@ -367,6 +349,7 @@
         loadMoreResourcesContent,
         moreResourcesContentLoading,
         error,
+        pageHeading,
       };
     },
     props: {
@@ -719,15 +702,6 @@
       },
     },
     $trs: {
-      kolibriTitleMessage: {
-        message: '{ title } - Kolibri',
-        context: 'DO NOT TRANSLATE\nCopy the source string.',
-      },
-      errorPageTitle: {
-        message: 'Error',
-        context:
-          "When Kolibri throws an error, this is the text that's used as the title of the error page. The description of the error follows below.",
-      },
       nextInLesson: {
         message: 'Next in lesson',
         context: 'Refers to the next learning resource in a lesson.',
@@ -780,6 +754,11 @@
     justify-content: flex-start;
     margin-top: 8px;
     margin-left: -8px;
+  }
+
+  .side-panel-chips::after {
+    flex: auto;
+    content: '';
   }
 
   .chip {

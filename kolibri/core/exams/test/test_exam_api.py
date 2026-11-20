@@ -150,6 +150,36 @@ class BaseExamTest:
         user.save()
         return self.client.login(username="learner", password="pass")
 
+    def create_user(self, username, facility=None):
+        user = FacilityUser.objects.create(
+            username=username, facility=facility or self.facility
+        )
+        user.set_password(DUMMY_PASSWORD)
+        user.save()
+        return user
+
+    def login_as(self, user):
+        self.assertTrue(
+            self.client.login(
+                username=user.username, password=DUMMY_PASSWORD, facility=user.facility
+            )
+        )
+
+    def create_classroom_learner(self):
+        learner = self.create_user("classroom_learner")
+        self.classroom.add_member(learner)
+        return learner
+
+    def create_classroom_coach(self):
+        coach = self.create_user("classroom_coach")
+        self.classroom.add_coach(coach)
+        return coach
+
+    def get_exam_detail(self, exam_id):
+        return self.client.get(
+            reverse("kolibri:core:exam-detail", kwargs={"pk": exam_id})
+        )
+
     def test_logged_in_user_exam_no_delete(self):
         self.login_as_learner()
         response = self.client.delete(
@@ -317,19 +347,43 @@ class BaseExamTest:
         response = self.post_new_exam(exam)
         self.assertEqual(response.status_code, 400)
 
-    def test_exam_with_invalid_question_id(self):
-        self.login_as_admin()
+    def _post_exam_with_question_id(self, question_id):
         exam = self.make_basic_exam()
+        exam["title"] = f"Exam {uuid.uuid4().hex}"
         exam["question_sources"][0]["questions"].append(
             {
                 "exercise_id": uuid.uuid4().hex,
-                "question_id": "q1",
+                "question_id": question_id,
                 "title": "Title",
                 "counter_in_exercise": 1,
             }
         )
-        response = self.post_new_exam(exam)
-        self.assertEqual(response.status_code, 400)
+        return self.post_new_exam(exam)
+
+    def test_exam_with_invalid_question_id(self):
+        self.login_as_admin()
+        for question_id in ("1q", "item k3j9x0ab", "item!", "", "q" * 201):
+            with self.subTest(question_id=question_id):
+                response = self._post_exam_with_question_id(question_id)
+                self.assertEqual(response.status_code, 400)
+                self.assertEqual(
+                    response.data[0]["metadata"]["field"],
+                    "question_sources.questions.question_id",
+                )
+
+    def test_exam_with_qti_question_ids_succeeds(self):
+        self.login_as_admin()
+        for question_id in (
+            # Studio's QTI id for a converted assessment item (hex_to_qti_id)
+            "KQabcyK22Tx-8YmTmTKtGAA",
+            "Kiqr_v4mwSSKrndkc0pgXpw",
+            # An item authored in Studio's QTI editor (generateRandomSlug("item"))
+            "item_k3j9x0ab",
+            "0" + uuid.uuid4().hex[1:],
+        ):
+            with self.subTest(question_id=question_id):
+                response = self._post_exam_with_question_id(question_id)
+                self.assertEqual(response.status_code, 201)
 
     def test_exam_with_no_question_id_fails(self):
         self.login_as_admin()
@@ -427,6 +481,54 @@ class BaseExamTest:
             "date_created",
         ]:
             self.assertIn(field, response.data)
+
+    def test_anonymous_user_retrieve_exam_not_found(self):
+        response = self.get_exam_detail(self.exam.id)
+        self.assertEqual(response.status_code, 404)
+
+    def test_unassigned_classroom_learner_retrieve_exam_not_found(self):
+        self.login_as(self.create_classroom_learner())
+        response = self.get_exam_detail(self.exam.id)
+        self.assertEqual(response.status_code, 404)
+
+    def test_other_facility_learner_retrieve_exam_not_found(self):
+        other_facility = Facility.objects.create(name="OtherFac")
+        other_classroom = Classroom.objects.create(
+            name="OtherClassroom", parent=other_facility
+        )
+        learner = self.create_user("other_learner", facility=other_facility)
+        other_classroom.add_member(learner)
+        self.login_as(learner)
+        response = self.get_exam_detail(self.exam.id)
+        self.assertEqual(response.status_code, 404)
+
+    def test_other_facility_admin_retrieve_exam_not_found(self):
+        other_facility = Facility.objects.create(name="OtherFac")
+        other_admin = self.create_user("other_admin", facility=other_facility)
+        other_facility.add_admin(other_admin)
+        self.login_as(other_admin)
+        response = self.get_exam_detail(self.exam.id)
+        self.assertEqual(response.status_code, 404)
+
+    def test_classroom_coach_can_retrieve_exam(self):
+        self.login_as(self.create_classroom_coach())
+        response = self.get_exam_detail(self.exam.id)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["id"], self.exam.id)
+
+    def test_classroom_coach_can_create_exam(self):
+        self.login_as(self.create_classroom_coach())
+        response = self.post_new_exam(self.make_basic_exam())
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.data["title"], "Exam")
+        self.assertExamExists(id=response.data["id"])
+
+    def test_classroom_coach_can_update_exam(self):
+        self.login_as(self.create_classroom_coach())
+        response = self.patch_updated_exam(self.exam.id, {"title": "coach title"})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["title"], "coach title")
+        self.assertExamExists(id=self.exam.id, title="coach title")
 
     def test_post_exam_v2_model_fails(self):
         self.login_as_admin()
@@ -568,6 +670,73 @@ class ExamAPITestCase(BaseExamTest, APITestCase):
         # A fully populated section round-trips its exact content.
         self.assertEqual(sections[1], full_section)
 
+    def _assert_legacy_question_sources_round_trip(
+        self, data_model_version, question_sources
+    ):
+        # Quizzes created before V3 keep their original question_sources shape,
+        # which the frontend converts on read, so the API must return it as stored.
+        # Written via update() to bypass Exam.save(), which assumes V3 sections.
+        exam = models.Exam.objects.create(
+            title=f"legacy-v{data_model_version}",
+            collection=self.classroom,
+            creator=self.admin,
+            active=True,
+            question_sources=[],
+        )
+        models.Exam.objects.filter(pk=exam.id).update(
+            data_model_version=data_model_version,
+            question_sources=question_sources,
+        )
+
+        self.login_as_admin()
+        response = self.client.get(
+            reverse("kolibri:core:exam-detail", kwargs={"pk": exam.id}),
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["data_model_version"], data_model_version)
+        self.assertEqual(response.data["question_sources"], question_sources)
+
+    @override_settings(DEBUG=True)
+    def test_retrieve_returns_v0_question_sources_as_stored(self):
+        self._assert_legacy_question_sources_round_trip(
+            0,
+            [
+                {
+                    "exercise_id": uuid.uuid4().hex,
+                    "number_of_questions": 3,
+                    "title": "Exercise",
+                }
+            ],
+        )
+
+    @override_settings(DEBUG=True)
+    def test_retrieve_returns_v1_question_sources_as_stored(self):
+        self._assert_legacy_question_sources_round_trip(
+            1,
+            [
+                {
+                    "exercise_id": uuid.uuid4().hex,
+                    "question_id": uuid.uuid4().hex,
+                    "title": "Exercise",
+                }
+            ],
+        )
+
+    @override_settings(DEBUG=True)
+    def test_retrieve_returns_v2_question_sources_as_stored(self):
+        self._assert_legacy_question_sources_round_trip(
+            2,
+            [
+                {
+                    "exercise_id": uuid.uuid4().hex,
+                    "question_id": uuid.uuid4().hex,
+                    "title": "Exercise",
+                    "counter_in_exercise": 1,
+                }
+            ],
+        )
+
     def test_complete_mastery_logs_when_exam_is_closed(self):
         self.login_as_admin()
         group = LearnerGroup.objects.create(name="test", parent=self.classroom)
@@ -692,6 +861,33 @@ class ExamAPITestCase(BaseExamTest, APITestCase):
         response = self.post_new_exam(exam)
         self.assertEqual(response.status_code, 400)
 
+    def test_non_draft_exam_section_missing_questions_fails(self):
+        self.login_as_admin()
+        exam = self.make_basic_exam()
+        exam["draft"] = False
+        del exam["question_sources"][0]["questions"]
+        response = self.post_new_exam(exam)
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(
+            response.data[0]["metadata"]["message"],
+            "Cannot create an Exam without any questions",
+        )
+
+    def test_non_draft_exam_leading_section_missing_questions_succeeds(self):
+        self.login_as_admin()
+        exam = self.make_basic_exam()
+        exam["draft"] = False
+        exam["question_sources"].insert(
+            0,
+            {
+                "section_title": "Test Section Title",
+                "description": "Test descripton for Section",
+                "learners_see_fixed_order": False,
+            },
+        )
+        response = self.post_new_exam(exam)
+        self.assertEqual(response.status_code, 201)
+
     def test_instant_report_visibility_null_returns_true(self):
         """A NULL instant_report_visibility in the DB should come back as True."""
         self.login_as_admin()
@@ -704,6 +900,26 @@ class ExamAPITestCase(BaseExamTest, APITestCase):
         )
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.data["instant_report_visibility"])
+
+    def test_assigned_learner_can_retrieve_active_exam(self):
+        learner = self.create_classroom_learner()
+        models.ExamAssignment.objects.create(
+            exam=self.exam, collection=self.classroom, assigned_by=self.admin
+        )
+        self.login_as(learner)
+        response = self.get_exam_detail(self.exam.id)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["id"], self.exam.id)
+
+    def test_assigned_learner_retrieve_inactive_unstarted_exam_not_found(self):
+        learner = self.create_classroom_learner()
+        models.ExamAssignment.objects.create(
+            exam=self.exam, collection=self.classroom, assigned_by=self.admin
+        )
+        models.Exam.objects.filter(id=self.exam.id).update(active=False)
+        self.login_as(learner)
+        response = self.get_exam_detail(self.exam.id)
+        self.assertEqual(response.status_code, 404)
 
 
 class ExamDraftAPITestCase(BaseExamTest, APITestCase):
@@ -724,6 +940,23 @@ class ExamDraftAPITestCase(BaseExamTest, APITestCase):
             sorted(learner_ids), sorted(learners, key=lambda x: x.id)
         ):
             self.assertEqual(learner_id, learner.id)
+
+    def test_assigned_learner_retrieve_draft_not_found(self):
+        learner = self.create_classroom_learner()
+        models.DraftExam.objects.filter(id=self.exam.id).update(
+            assignments=[self.classroom.id], learner_ids=[learner.id]
+        )
+        self.login_as(learner)
+        response = self.get_exam_detail(self.exam.id)
+        self.assertEqual(response.status_code, 404)
+
+    def test_classroom_coach_can_publish_draft(self):
+        self.login_as(self.create_classroom_coach())
+        response = self.patch_updated_exam(self.exam.id, {"draft": False})
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.data["draft"])
+        self.assertExamNotExist(id=self.exam.id)
+        self.assertTrue(models.Exam.objects.filter(id=response.data["id"]).exists())
 
     def test_logged_in_admin_exam_update_can_publish(self):
         self.login_as_admin()
@@ -799,6 +1032,18 @@ class ExamDraftAPITestCase(BaseExamTest, APITestCase):
         except models.Exam.DoesNotExist:
             self.fail("Exam not created")
         super().assertLearnerAssignments(exam.id, user)
+
+    def test_logged_in_admin_exam_update_question_sources_with_qti_question_id(self):
+        self.login_as_admin()
+        sections = self.make_basic_sections(1)
+        sections[0]["questions"][0]["question_id"] = "KQabcyK22Tx-8YmTmTKtGAA"
+        response = self.patch_updated_exam(self.exam.id, {"question_sources": sections})
+        self.assertEqual(response.status_code, 200)
+        self.exam.refresh_from_db()
+        self.assertEqual(
+            self.exam.question_sources[0]["questions"][0]["question_id"],
+            "KQabcyK22Tx-8YmTmTKtGAA",
+        )
 
     def test_logged_in_admin_exam_cant_update_active(self):
         self.login_as_admin()

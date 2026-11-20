@@ -21,7 +21,8 @@
           :layout4="{ span: 4, alignment: 'left' }"
         >
           <div>
-            <h1
+            <component
+              :is="`h${headingLevel}`"
               v-if="userId"
               class="title"
             >
@@ -29,7 +30,7 @@
                 icon="person"
                 :label="userName"
               />
-            </h1>
+            </component>
             <KLabeledIcon
               :icon="titleIcon"
               :label="title"
@@ -63,12 +64,11 @@
     </template>
 
     <template
-      v-if="!loading"
+      v-if="pastTries.length > 1"
       #subheader
     >
       <KSelect
-        v-if="pastTries.length > 1"
-        :value="pastTriesOptions[tryIndex]"
+        :value="pastTriesOptions[tryIndex] || {}"
         :label="$tr('attemptDropdownLabel')"
         :options="pastTriesOptions"
         :style="{ background: 'var(--palette-grey-v200)' }"
@@ -77,7 +77,7 @@
         @change="navigateToTry"
       />
       <CurrentTryOverview
-        v-if="currentTry && pastTries.length > 1 && currentTry.attemptlogs.length"
+        v-if="!loading && currentTry && currentTry.attemptlogs.length"
         :userId="userId"
         :currentTry="currentTry"
         :totalQuestions="questions.length"
@@ -258,6 +258,12 @@
       userName: {
         type: String,
         required: true,
+      },
+      // Level of the user name heading; 2 when the page already has an h1
+      headingLevel: {
+        type: Number,
+        default: 1,
+        validator: level => [1, 2].includes(level),
       },
       // Which specific interaction within an attempt to show
       selectedInteractionIndex: {
@@ -494,7 +500,7 @@
         }
       },
       navigateToTry(tryOption) {
-        if (tryOption.value !== this.tryIndex) {
+        if (isFinite(tryOption.value) && tryOption.value !== this.tryIndex) {
           this.navigateTo(tryOption.value, 0, 0);
           this.$refs.multiPaneLayout.scrollMainToTop();
           this.showCorrectAnswer = false;
@@ -516,13 +522,21 @@
         if (!isFinite(this.tryIndex)) {
           return;
         }
+        const tryIndex = this.tryIndex;
         this.loading = true;
         MasteryLogResource.fetchMostRecentDiff(this.getParams())
           .then(currentTry => {
+            if (tryIndex !== this.tryIndex) {
+              return;
+            }
             this.currentTry = currentTry;
             this.loading = false;
           })
           .catch(err => {
+            if (tryIndex !== this.tryIndex) {
+              return;
+            }
+            this.currentTry = null;
             if (err.response && err.response.status_code === 404) {
               this.$emit('noCompleteTries');
             }
@@ -607,6 +621,13 @@
 
 
 <style lang="scss" scoped>
+
+  // Matches h1 as rendered: normalize.css's h1 rule loads after main.scss and wins
+  .title {
+    margin-top: 0.67em;
+    margin-bottom: 0.67em;
+    font-size: 2em;
+  }
 
   .exercise-container {
     padding: 8px;

@@ -14,6 +14,7 @@ from urllib.parse import urlparse
 from urllib.parse import urlunparse
 
 from configobj import ConfigObj
+from configobj import ConfigObjError
 from configobj import flatten_errors
 from configobj import get_extra_values
 from django.utils.functional import SimpleLazyObject
@@ -261,9 +262,7 @@ def storage_option(value, *opts):
     if value == "gcs":
         try:
             # Checks the optional storages package is installed.
-            from storages.backends.gcloud import (  # noqa: F401, PLC0415
-                GoogleCloudStorage,
-            )
+            from storages.backends.gcloud import GoogleCloudStorage  # noqa: F401, PLC0415
 
             return value
         except ModuleNotFoundError as e:
@@ -679,6 +678,15 @@ base_option_spec = {
                 The default will include all the languages Kolibri supports.
             """,
         },
+        "DEFAULT_LANGUAGE": {
+            "type": "option",
+            "options": ("", *KOLIBRI_LANGUAGE_INFO),
+            "default": "",
+            "description": """
+                Kolibri's default language; before provisioning it outranks the browser's language.
+                Blank: the browser's language, then the operating system's.
+            """,
+        },
         "ZIP_CONTENT_ORIGIN": {
             "type": "origin_or_port",
             "default": "",
@@ -1002,13 +1010,29 @@ def _set_from_deprecated_aliases(conf):
     return using_deprecated_alias
 
 
+def _load_options_file(ini_path):
+    configspec = get_configspec()
+    try:
+        return ConfigObj(ini_path, configspec=configspec, encoding="utf-8")
+    except ConfigObjError as e:
+        errors = e.errors
+    except (UnicodeError, LookupError):
+        errors = ["the file is not UTF-8 encoded, save it as UTF-8"]
+    for error in errors:
+        logger.error("Error processing %s: %s", ini_path, error)
+    logger.critical(
+        "Aborting: Could not process options config (see errors above for more details)"
+    )
+    raise SystemExit(1)
+
+
 def read_options_file(ini_filename="options.ini"):
     # Cycle: conf imports this module.
     from kolibri.utils.conf import KOLIBRI_HOME  # noqa: PLC0415
 
     ini_path = os.path.join(KOLIBRI_HOME, ini_filename)
 
-    conf = ConfigObj(ini_path, configspec=get_configspec())
+    conf = _load_options_file(ini_path)
 
     # Check for use of deprecated options
     for section, opts in option_spec.items():

@@ -1,11 +1,17 @@
 import hashlib
 
 from django.db import models
+from django.db.models import Case
+from django.db.models import IntegerField
 from django.db.models import OuterRef
 from django.db.models import Q
 from django.db.models import Subquery
+from django.db.models import Value
+from django.db.models import When
 from django.db.utils import IntegrityError
 from le_utils.constants import modalities
+from morango.models import SyncableModelManager
+from morango.models import SyncableModelQuerySet
 from morango.models import UUIDField
 from morango.models.core import Store
 
@@ -22,6 +28,7 @@ from kolibri.core.content.utils.assignment import ContentAssignmentManager
 from kolibri.core.fields import DateTimeTzField
 from kolibri.core.logger.models import ContentSummaryLog
 from kolibri.core.logger.utils.pre_post_test import get_synthetic_content_id
+from kolibri.core.notifications.models import LearnerProgressNotification
 from kolibri.core.utils.cache import process_cache
 from kolibri.utils.data import ChoicesEnum
 from kolibri.utils.time_utils import local_now
@@ -153,6 +160,10 @@ class CourseSession(AbstractFacilityDataModel):
     def __str__(self):
         return f"CourseSession {self.title} for Classroom {self.collection.name}"
 
+    def delete(self, using=None, keep_parents=False):
+        LearnerProgressNotification.objects.filter(course_session_id=self.id).delete()
+        super().delete(using, keep_parents)
+
     def get_resume_data(self, user):
         """
         Returns resume state for a given user within this course session.
@@ -175,7 +186,9 @@ class CourseSession(AbstractFacilityDataModel):
             collection__membership__user=user
         )
 
-        unit_test_active = unit_test_assignments_qs.filter(closed=False).first()
+        unit_test_active = (
+            unit_test_assignments_qs.filter(closed=False).most_recent_first().first()
+        )
         if unit_test_active:
             result["active_test"] = {
                 "unit_id": unit_test_active.unit_contentnode_id,
@@ -539,6 +552,23 @@ class CourseSessionAssignment(AbstractFacilityDataModel):
         return super().deserialize(dict_model, sync_filter=sync_filter)
 
 
+class UnitTestAssignmentQuerySet(SyncableModelQuerySet):
+    def most_recent_first(self, *leading_order):
+        return self.annotate(
+            unit_lft=Subquery(
+                ContentNode.objects.filter(id=OuterRef("unit_contentnode_id")).values(
+                    "lft"
+                )[:1]
+            ),
+            test_type_rank=Case(
+                When(test_type=TestType.Post, then=Value(0)),
+                When(test_type=TestType.Pre, then=Value(1)),
+                default=Value(2),
+                output_field=IntegerField(),
+            ),
+        ).order_by(*leading_order, "closed", "-unit_lft", "test_type_rank")
+
+
 class UnitTestAssignment(AbstractFacilityDataModel):
     """
     Manages the status of pre and post tests within course units.
@@ -598,6 +628,8 @@ class UnitTestAssignment(AbstractFacilityDataModel):
 
     # Morango model name for syncing
     morango_model_name = "unittestassignment"
+
+    objects = SyncableModelManager.from_queryset(UnitTestAssignmentQuerySet)()
 
     def __str__(self):
         return (

@@ -1,6 +1,6 @@
 # /// script
 # requires-python = ">=3.6"
-# dependencies = ["requests==2.27.1", "beautifulsoup4==4.8.2", "pip>=20"]
+# dependencies = ["requests==2.27.1", "urllib3", "pip>=20"]
 # ///
 """
 This module defines functions to install c extensions for all the platforms into
@@ -33,9 +33,13 @@ import os
 import shutil
 import subprocess
 import sys
+import time
+from html.parser import HTMLParser
+from urllib.parse import unquote
+from urllib.parse import urlparse
 
 import requests
-from bs4 import BeautifulSoup
+import urllib3
 
 DIST_CEXT = os.path.join(
     os.path.dirname(os.path.realpath(os.path.dirname(__file__))),
@@ -98,6 +102,9 @@ def run_pip_install(
             "pip",
             "install",
             "-q",
+            # Skip the self-check's unprimed /simple/pip/ GET; its torn read
+            # only warns.
+            "--disable-pip-version-check",
             "-t",
             path,
             "--platform",
@@ -120,6 +127,10 @@ def run_pip_install(
 
 
 DEFAULT_MAX_WORKERS = 8
+INDEX_ATTEMPTS = 6
+INDEX_TIMEOUT = 30
+# requests 2.27.1 does not wrap urllib3's SSLError raised while reading a body.
+INDEX_ERRORS = (requests.RequestException, urllib3.exceptions.HTTPError)
 
 
 def build_install_tasks(package_name, package_version, index_url, info, cache_path):
@@ -207,19 +218,47 @@ def run_installs(tasks, max_workers=DEFAULT_MAX_WORKERS):
     network-bound `pip install` into its own target directory, so a thread pool
     overlaps the downloads. A fatal (PyPI) failure aborts the build.
     """
+    # pip writes a cache entry's headers and body as separate files, so pips
+    # revalidating one stale index page together can pair new headers with the
+    # old body (IncompleteRead). One install per (package, index) refreshes
+    # each page before the rest read it.
+    primers = []
+    rest = []
+    seen = set()
+    for task in tasks:
+        key = (task["package_name"], task["index_url"])
+        (rest if key in seen else primers).append(task)
+        seen.add(key)
+
     errors = []
     with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
-        futures = [executor.submit(install_one, task) for task in tasks]
-        for future in concurrent.futures.as_completed(futures):
-            try:
-                future.result()
-            except RuntimeError as e:
-                errors.append(str(e))
+        for batch in (primers, rest):
+            futures = [executor.submit(install_one, task) for task in batch]
+            for future in concurrent.futures.as_completed(futures):
+                try:
+                    future.result()
+                except RuntimeError as e:
+                    errors.append(str(e))
     if errors:
         sys.exit("\n" + "\n".join(errors) + "\n")
 
 
 supported_python3_versions = ["36", "37", "38", "39", "310", "311"]
+
+
+class PackagePageParser(HTMLParser):
+    def __init__(self):
+        HTMLParser.__init__(self)
+        self.links = []
+
+    def handle_starttag(self, tag, attrs):
+        if tag != "a":
+            return
+
+        for name, value in attrs:
+            if name == "href":
+                self.links.append(value)
+                break
 
 
 def parse_package_page(files, pk_version, index_url, cache_path):
@@ -234,12 +273,13 @@ def parse_package_page(files, pk_version, index_url, cache_path):
 
     result = []
     package_name = None
-    for file in files.find_all("a"):
+    for file in files:
         # Skip if not a whl file
-        if not file.string.endswith("whl"):
+        file_name = unquote(os.path.basename(urlparse(file).path))
+        if not file_name.endswith("whl"):
             continue
 
-        file_name_chunks = file.string.split("-")
+        file_name_chunks = file_name.split("-")
 
         package_version = file_name_chunks[1]
         package_name = file_name_chunks[0]
@@ -269,6 +309,30 @@ def parse_package_page(files, pk_version, index_url, cache_path):
     return build_install_tasks(package_name, pk_version, index_url, result, cache_path)
 
 
+def _get_index_page(session, url):
+    r = session.get(url, timeout=INDEX_TIMEOUT)
+    r.raise_for_status()
+    return r
+
+
+def _fetch_index_page(session, url):
+    for attempt in range(1, INDEX_ATTEMPTS):
+        try:
+            return _get_index_page(session, url)
+        except INDEX_ERRORS as e:
+            delay = 2**attempt
+            logger.warning(
+                "Error retrieving %s (attempt %d/%d): %s; retrying in %ds...",
+                url,
+                attempt,
+                INDEX_ATTEMPTS,
+                e,
+                delay,
+            )
+            time.sleep(delay)
+    return _get_index_page(session, url)
+
+
 def parse_pypi_and_piwheels(name, pk_version, cache_path, session):
     """
     Collect the install tasks from the pypi and piwheels pages of the package.
@@ -276,30 +340,13 @@ def parse_pypi_and_piwheels(name, pk_version, cache_path, session):
     tasks = []
     links = [PYPI_DOWNLOAD, PIWHEEL_DOWNLOAD]
     for link in links:
-        url = link + name
-        for _ in range(5):
-            try:
-                r = session.get(url)
-                r.raise_for_status()
-            except Exception as e:
-                logger.info("Error retrieving %s: %s", url, e)
-            else:
-                if r.status_code == 200:
-                    # Got a valid response
-                    break
-
-                logger.info(
-                    "Unexpected response from %s: %s %s", url, r.status_code, r.reason
-                )
-
-            # Clear the response in case this is the last iteration
-            r = None
-
-        if r:
-            files = BeautifulSoup(r.content, "html.parser")
-            tasks.extend(parse_package_page(files, pk_version, link, cache_path))
-        else:
-            sys.exit(f"\nUnable to find package {name} on {link}.\n")
+        try:
+            r = _fetch_index_page(session, link + name)
+        except INDEX_ERRORS as e:
+            sys.exit(f"\nUnable to find package {name} on {link}: {e}\n")
+        parser = PackagePageParser()
+        parser.feed(r.content.decode("utf-8"))
+        tasks.extend(parse_package_page(parser.links, pk_version, link, cache_path))
     return tasks
 
 

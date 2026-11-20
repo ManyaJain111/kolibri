@@ -4,6 +4,7 @@ import 'regenerator-runtime/runtime';
 import '@testing-library/jest-dom';
 import 'intl';
 import 'intl/locale-data/jsonp/en.js';
+import { MessageChannel, MessagePort } from 'node:worker_threads';
 import * as Aphrodite from 'aphrodite';
 import * as AphroditeNoImportant from 'aphrodite/no-important';
 import failOnConsole from 'jest-fail-on-console';
@@ -21,10 +22,20 @@ Object.assign(globalThis, {
   ReadableStream,
   WritableStream,
   TransformStream,
+  MessageChannel,
+  MessagePort,
 });
 
 if (typeof globalThis.structuredClone === 'undefined') {
   globalThis.structuredClone = val => JSON.parse(JSON.stringify(val));
+}
+
+if (typeof globalThis.ResizeObserver === 'undefined') {
+  globalThis.ResizeObserver = class ResizeObserver {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  };
 }
 
 /* eslint-disable vue/one-component-per-file */

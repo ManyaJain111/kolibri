@@ -5,9 +5,12 @@ import useUser, { useUserMock } from 'kolibri/composables/useUser'; // eslint-di
 import { coreStrings } from 'kolibri/uiText/commonCoreStrings';
 import { MAX_USERS_FOR_LISTING_VIEW } from '../../../constants';
 import SignInPage from '../index.vue';
+import UserAuthLayout from '../../UserAuthLayout';
 import useAuthFlow, { useAuthFlowMock } from '../../../composables/useAuthFlow'; // eslint-disable-line import-x/named
 import useAuthRouter, { useAuthRouterMock } from '../../../composables/useAuthRouter'; // eslint-disable-line import-x/named
 import useAuthWatcher from '../../../composables/useAuthWatcher';
+import { pageTitleStrings } from '../../pageTitleStrings';
+import describeAuthPageTitle from '../../__tests__/describeAuthPageTitle';
 
 jest.mock('kolibri/client');
 jest.mock('kolibri/composables/useUser');
@@ -34,6 +37,7 @@ jest.mock('vue-router/composables', () => ({
 }));
 
 const { usernameLabel$ } = coreStrings;
+const { signInPageTitle$ } = pageTitleStrings;
 
 const TEST_FACILITY = { id: 'fac-1', name: 'Test Facility' };
 const SUGGESTED_USERNAME = 'alice';
@@ -132,4 +136,23 @@ describe('SignInPage – FacilityUsername reads', () => {
       expect(await screen.findByText(SUGGESTED_USERNAME)).toBeInTheDocument();
     });
   });
+});
+
+describe('SignInPage in UserAuthLayout', () => {
+  const PageInLayout = {
+    components: { UserAuthLayout, SignInPage },
+    template: '<UserAuthLayout><SignInPage /></UserAuthLayout>',
+  };
+
+  function renderInLayout() {
+    return render(PageInLayout, { routes: [{ name: 'SignInPage', path: '/' }] });
+  }
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    client.__reset();
+    setupMocks();
+  });
+
+  describeAuthPageTitle(renderInLayout, signInPageTitle$);
 });

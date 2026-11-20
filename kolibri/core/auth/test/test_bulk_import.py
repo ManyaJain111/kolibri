@@ -1,6 +1,8 @@
+import ast
 import csv
 import tempfile
 from io import StringIO
+from uuid import UUID
 from uuid import uuid4
 
 import pytest
@@ -9,16 +11,18 @@ from django.core.management import call_command
 from django.test import override_settings
 from django.test import TestCase
 from django.utils import timezone
+from django.utils import translation
 
 from kolibri.core.auth.constants import demographics
 from kolibri.core.auth.constants import role_kinds
+from kolibri.core.auth.errors import BulkUserImportError
 from kolibri.core.auth.models import Classroom
 from kolibri.core.auth.models import FacilityUser
 from kolibri.core.utils.csv import open_csv_for_reading
 from kolibri.core.utils.csv import open_csv_for_writing
 
-from ..management.commands import bulkimportusers as b
-from ..management.commands.bulkexportusers import labels
+from ..utils import bulk_import as b
+from ..utils.bulk_export import labels
 from .helpers import create_dummy_facility_data
 
 CLASSROOMS = 2
@@ -155,11 +159,10 @@ class ImportTestCase(TestCase):
         header_translation = {
             lbl.partition("(")[2].partition(")")[0]: lbl for lbl in header
         }
-        cmd = b.Command()
 
         with open_csv_for_reading(local_filepath=self.filename) as source:
             reader = csv.DictReader(source, strict=True)
-            per_line_errors, classes, users, roles = cmd.csv_values_validation(
+            per_line_errors, classes, users, roles = b.csv_values_validation(
                 reader, header_translation, self.facility
             )
 
@@ -225,11 +228,10 @@ class ImportTestCase(TestCase):
         header_translation = {
             lbl.partition("(")[2].partition(")")[0]: lbl for lbl in header
         }
-        cmd = b.Command()
 
         with open_csv_for_reading(local_filepath=new_filename) as source:
             reader = csv.DictReader(source, strict=True)
-            per_line_errors, _classes, _users, _roles = cmd.csv_values_validation(
+            per_line_errors, _classes, _users, _roles = b.csv_values_validation(
                 reader, header_translation, self.facility
             )
         assert len(per_line_errors) == 1
@@ -682,3 +684,79 @@ class ImportTestCase(TestCase):
         self.assertIsNone(imported_user.date_deleted)
         self.assertEqual(imported_user.username, "testuser")
         self.assertTrue(imported_user.check_password("newpassword"))
+
+    def _import_row(self, username, uuid_cell, full_name, *args, **kwargs):
+        _, csv_filename = tempfile.mkstemp(suffix=".csv")
+        row = [uuid_cell, username, "*", full_name, "LEARNER", "", "", "", "", ""]
+        self.create_csv(csv_filename, [row])
+        call_command(
+            "bulkimportusers", csv_filename, *args, facility=self.facility.id, **kwargs
+        )
+
+    def test_dashed_uuid_matches_existing_user_with_delete(self):
+        user = FacilityUser.objects.create(
+            username="bob",
+            full_name="Bob",
+            password=make_password("password"),
+            facility=self.facility,
+        )
+
+        self._import_row("bob", str(UUID(user.id)), "Robert", "--delete")
+
+        self.assertEqual(FacilityUser.objects.get(id=user.id).full_name, "Robert")
+
+    def test_uuid_in_any_valid_form_updates_existing_user(self):
+        user = FacilityUser.objects.create(
+            username="bob",
+            full_name="Bob",
+            password=make_password("password"),
+            facility=self.facility,
+        )
+        user_uuid = UUID(user.id)
+        forms = {
+            "uppercase": user_uuid.hex.upper(),
+            "braced": f"{{{user_uuid}}}",
+            "urn": user_uuid.urn,
+        }
+        for form, uuid_cell in forms.items():
+            with self.subTest(form=form):
+                full_name = f"Bob {form}"
+
+                self._import_row("bob", uuid_cell, full_name)
+
+                self.assertEqual(
+                    FacilityUser.objects.get(id=user.id).full_name, full_name
+                )
+
+    def test_row_shorter_than_header_creates_user(self):
+        _, csv_filename = tempfile.mkstemp(suffix=".csv")
+        header = list(labels.values())
+        header.append(header.pop(0))
+        with open_csv_for_writing(local_filepath=csv_filename) as f:
+            writer = csv.writer(f)
+            writer.writerow(header)
+            writer.writerow(["alice", "pw", "Alice", "LEARNER", "", "", "", "", ""])
+
+        call_command("bulkimportusers", csv_filename, facility=self.facility.id)
+
+        self.assertTrue(FacilityUser.objects.filter(username="alice").exists())
+
+    def test_unknown_uuid_error_names_uuid(self):
+        unknown_uuid = str(uuid4())
+        errorlines = StringIO()
+
+        self._import_row("bob", unknown_uuid, "Bob", errorlines=errorlines)
+
+        error = ast.literal_eval(errorlines.getvalue().strip())
+        self.assertEqual(error["field"], "UUID")
+        self.assertEqual(error["value"], unknown_uuid)
+        self.assertIn(unknown_uuid, error["message"])
+
+    def test_failed_import_restores_language(self):
+        manager = b.BulkUserImportManager(
+            "nonexistent.csv", facility_id=self.facility.id, locale="fr-fr"
+        )
+        with translation.override("en"):
+            with self.assertRaises(BulkUserImportError):
+                manager.run()
+            self.assertEqual(translation.get_language(), "en")

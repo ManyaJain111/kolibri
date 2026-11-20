@@ -773,6 +773,19 @@ class FacilityAPITestCase(APITestCase):
             ),
         )
 
+    def test_public_facilityuser_malformed_facility_id_fails_authentication(self):
+        credentials = base64.b64encode(
+            str.encode(
+                f"username={self.user1.username}&{FACILITY_CREDENTIAL_KEY}=bad:{DUMMY_PASSWORD}"
+            )
+        ).decode("ascii")
+        self.client.credentials(HTTP_AUTHORIZATION=f"Basic {credentials}")
+        response = self.client.get(
+            reverse("kolibri:core:publicuser-list"),
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
     def test_public_facilityuser_roles_are_flat_strings(self):
         """Roles must be a flat list of kind strings, not nested objects.
 
@@ -2142,6 +2155,35 @@ class LoginLogoutTestCase(APITestCase):
         )
 
         self.assertEqual(response_user3.status_code, 401)
+
+    def test_case_variant_usernames_no_exact_match_wrong_password(self):
+        # "Shared_Username" and "shared_username" both match case-insensitively,
+        # but neither matches this casing exactly
+        response = self.client.post(
+            reverse("kolibri:core:session-list"),
+            data={
+                "username": "SHARED_USERNAME",
+                "password": "wrong_password",
+                "facility": self.facility.id,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(response.data[0]["id"], error_constants.INVALID_CREDENTIALS)
+
+    def test_case_variant_usernames_no_exact_match_missing_password(self):
+        response = self.client.post(
+            reverse("kolibri:core:session-list"),
+            data={
+                "username": "SHARED_USERNAME",
+                "facility": self.facility.id,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.data[0]["id"], error_constants.MISSING_PASSWORD)
 
     def test_not_specified_password(self):
         self.user.password = demographics.NOT_SPECIFIED
@@ -3929,11 +3971,9 @@ class KolibriDataPortalViewSetTestCase(APITestCase):
         self, mock_registerfacility, mock_enqueue_sync
     ):
         mock_registerfacility.return_value.status_code = 200
-        self.client.post(
-            reverse("kolibri:core:portal-register"),
-            {"facility_id": self.facility.id, "token": "test-token"},
-            format="json",
-        )
+        response = self._register()
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_registerfacility.assert_called_once_with("test-token", self.facility)
         mock_enqueue_sync.assert_called_once_with(self.facility)
 
     def _register(self):
@@ -3985,6 +4025,21 @@ class KolibriDataPortalViewSetTestCase(APITestCase):
         response = self._register()
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json(), [{"id": "ALREADY_REGISTERED_FOR_COMMUNITY"}])
+
+    @patch("kolibri.core.api.registerfacility")
+    def test_register_invalid_facility_id(self, mock_registerfacility):
+        payloads = [
+            {"token": "test-token"},
+            {"facility_id": "abc", "token": "test-token"},
+            {"facility_id": uuid.uuid4().hex, "token": "test-token"},
+        ]
+        for payload in payloads:
+            with self.subTest(payload=payload):
+                response = self.client.post(
+                    reverse("kolibri:core:portal-register"), payload, format="json"
+                )
+                self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+                mock_registerfacility.assert_not_called()
 
     def _validate_token(self):
         return self.client.get(
@@ -4608,6 +4663,119 @@ class FacilityUserSerializerPicturePasswordTestCase(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         user = models.FacilityUser.objects.get(id=response.data["id"])
         self.assertIsNone(user.picture_password)
+
+
+@patch("kolibri.core.auth.viewsets.facility_user.cleanup_expired_deleted_users")
+class RestorePicturePasswordTestCase(APITestCase):
+    databases = "__all__"
+
+    @classmethod
+    def setUpTestData(cls):
+        provision_device()
+        cls.facility = models.Facility.objects.create(name="RestorePicPwdFacility")
+        cls.superuser = create_superuser(cls.facility)
+        cls.facility.dataset.learner_can_edit_password = False
+        cls.facility.dataset.picture_password_settings = {
+            "icon_style": "standard",
+            "show_icon_text": False,
+        }
+        cls.facility.dataset.save()
+
+    def setUp(self):
+        self.client.login(
+            username=self.superuser.username,
+            password=DUMMY_PASSWORD,
+            facility=self.facility,
+        )
+
+    def _soft_delete(self, user):
+        response = self.client.delete(
+            reverse("kolibri:core:facilityuser-detail", kwargs={"pk": user.pk})
+        )
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+
+    def _restore(self, user):
+        return self.client.post(
+            reverse("kolibri:core:deletedfacilityuser-restore") + f"?by_ids={user.id}"
+        )
+
+    def test_restored_learner_is_assigned_a_picture_password(self, mock_cleanup_task):
+        learner = FacilityUserFactory.create(facility=self.facility)
+        self._soft_delete(learner)
+        # What _reclaim_sequence_from_deleted_learner does when the pool runs out.
+        models.FacilityUser.all_objects.filter(pk=learner.pk).update(
+            picture_password=None
+        )
+
+        response = self._restore(learner)
+
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        learner.refresh_from_db()
+        self.assertIsNotNone(learner.picture_password)
+
+    def test_restoring_several_learners_gives_each_a_distinct_sequence(
+        self, mock_cleanup_task
+    ):
+        learners = [
+            FacilityUserFactory.create(facility=self.facility) for _ in range(3)
+        ]
+        ids = ",".join(str(learner.id) for learner in learners)
+        self.client.delete(reverse("kolibri:core:facilityuser-list") + f"?by_ids={ids}")
+        models.FacilityUser.all_objects.filter(
+            id__in=[learner.id for learner in learners]
+        ).update(picture_password=None)
+
+        response = self.client.post(
+            reverse("kolibri:core:deletedfacilityuser-restore") + f"?by_ids={ids}"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        restored = models.FacilityUser.objects.filter(
+            id__in=[learner.id for learner in learners]
+        )
+        self.assertEqual(3, restored.count())
+        sequences = [learner.picture_password for learner in restored]
+        self.assertNotIn(None, sequences)
+        self.assertEqual(len(sequences), len(set(sequences)))
+
+    def test_restored_learner_keeps_their_own_picture_password(self, mock_cleanup_task):
+        learner = FacilityUserFactory.create(facility=self.facility)
+        models.FacilityUser.objects.filter(pk=learner.pk).update(
+            picture_password="1.2.3"
+        )
+        self._soft_delete(learner)
+
+        response = self._restore(learner)
+
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        learner.refresh_from_db()
+        self.assertIsNone(learner.date_deleted)
+        self.assertEqual("1.2.3", learner.picture_password)
+
+    def test_restored_coach_is_not_assigned_a_picture_password(self, mock_cleanup_task):
+        coach = FacilityUserFactory.create(facility=self.facility)
+        self.facility.add_coach(coach)
+        self._soft_delete(coach)
+
+        response = self._restore(coach)
+
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        coach.refresh_from_db()
+        self.assertIsNone(coach.date_deleted)
+        self.assertIsNone(coach.picture_password)
+
+    def test_restored_superuser_is_not_assigned_a_picture_password(
+        self, mock_cleanup_task
+    ):
+        other_superuser = create_superuser(self.facility, username="othersuperuser")
+        self._soft_delete(other_superuser)
+
+        response = self._restore(other_superuser)
+
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        other_superuser.refresh_from_db()
+        self.assertIsNone(other_superuser.date_deleted)
+        self.assertIsNone(other_superuser.picture_password)
 
 
 class PicturePasswordPrevalidateTestCase(APITestCase):

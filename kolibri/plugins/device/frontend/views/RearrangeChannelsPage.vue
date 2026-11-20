@@ -1,7 +1,7 @@
 <template>
 
   <ImmersivePage
-    :appBarTitle="$tr('editChannelOrderTitle')"
+    :appBarTitle="pageTitleStrings.editChannelOrderTitle$()"
     :route="backRoute"
     :loading="pageLoading"
   >
@@ -25,11 +25,7 @@
               :key="channel.id"
             >
               <DraggableHandle>
-                <div
-                  :class="$computedClass(itemClass)"
-                  class="item"
-                  :style="{ backgroundColor: 'var(--tokens-surface)' }"
-                >
+                <div class="item">
                   <DragSortWidget
                     class="sort-widget"
                     :itemLabel="channel.name"
@@ -63,22 +59,27 @@
   import DraggableItem from 'kolibri-common/components/draggable/DraggableItem';
   import client from 'kolibri/client';
   import urls from 'kolibri/urls';
+  import { createTranslator } from 'kolibri/utils/i18n';
   import ImmersivePage from 'kolibri/components/pages/ImmersivePage';
   import useUser from 'kolibri/composables/useUser';
   import useSnackbar from 'kolibri/composables/useSnackbar';
+  import usePageTitle from 'kolibri/composables/usePageTitle';
   import { handleApiError } from 'kolibri/utils/appError';
   import { pageLoading } from 'kolibri-common/composables/usePageLoading';
   import DeviceChannelResource from '../apiResources/deviceChannel';
   import useContentTasks from '../composables/useContentTasks';
   import { PageNames } from '../constants';
 
+  export const pageTitleStrings = createTranslator('RearrangeChannelsPage', {
+    editChannelOrderTitle: {
+      message: 'Edit channel order',
+      context:
+        "Title of the 'Edit channel order' page where users can rearrange the order in which channels will be displayed to learners and coaches.",
+    },
+  });
+
   export default {
     name: 'RearrangeChannelsPage',
-    metaInfo() {
-      return {
-        title: this.$tr('editChannelOrderTitle'),
-      };
-    },
     components: {
       DragSortWidget,
       DraggableRegion,
@@ -88,6 +89,7 @@
     },
     setup() {
       useContentTasks();
+      usePageTitle(pageTitleStrings.editChannelOrderTitle$);
       const { canManageContent } = useUser();
       const { createSnackbar } = useSnackbar();
       return {
@@ -95,6 +97,7 @@
         createSnackbar,
         handleApiError,
         pageLoading,
+        pageTitleStrings,
       };
     },
     data() {
@@ -106,13 +109,6 @@
     computed: {
       backRoute() {
         return { name: PageNames.MANAGE_CONTENT_PAGE };
-      },
-      itemClass() {
-        return {
-          ':hover': {
-            backgroundColor: this.$themePalette.grey.v_300,
-          },
-        };
       },
     },
     beforeMount() {
@@ -184,11 +180,6 @@
         context:
           "This message will display on the 'Edit channel order' page if there are no channels available.",
       },
-      editChannelOrderTitle: {
-        message: 'Edit channel order',
-        context:
-          "Title of the 'Edit channel order' page where users can rearrange the order in which channels will be displayed to learners and coaches.",
-      },
     },
   };
 
@@ -218,7 +209,12 @@
     padding: 8px;
     cursor: grab;
     user-select: none;
+    background-color: var(--tokens-surface);
     border-radius: $radius;
+
+    &:hover {
+      background-color: var(--palette-grey-v300);
+    }
   }
 
   .title {

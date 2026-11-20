@@ -1682,46 +1682,57 @@ describe('container operators', () => {
   it('should delete value from container', () => {
     const variables = { ITEMS: ['A', 'B', 'C'] };
     const evaluator = parseQTIExpression(
-      op('delete', variable('ITEMS'), baseValue('identifier', 'B')),
+      op('delete', baseValue('identifier', 'B'), variable('ITEMS')),
       variables,
     );
     expect(evaluator()).toEqual(['A', 'C']);
   });
 
-  it('should delete multiple values from container', () => {
-    const variables = { ITEMS: ['A', 'B', 'C', 'D'] };
-    const evaluator = parseQTIExpression(
-      op('delete', variable('ITEMS'), baseValue('identifier', 'B'), baseValue('identifier', 'D')),
-      variables,
-    );
-    expect(evaluator()).toEqual(['A', 'C']);
-  });
-
-  it('should return original container when value to delete not found', () => {
-    const variables = { ITEMS: ['A', 'B', 'C'] };
-    const evaluator = parseQTIExpression(
-      op('delete', variable('ITEMS'), baseValue('identifier', 'Z')),
-      variables,
-    );
-    expect(evaluator()).toEqual(['A', 'B', 'C']);
-  });
-
-  it('should return null when a deletion target is null (NULL propagation)', () => {
-    // qti-delete returns NULL if either sub-expression is NULL — v3
-    // section 2.11.3.18
+  it('should delete every instance of the value from the container', () => {
+    // The spec's own example: delete(A, {B,A,C,A}) is {B,C}
     //   https://www.imsglobal.org/spec/qti/v3p0/info/#OpDelete
-    const variables = { ITEMS: ['A', 'B', 'C'], MISSING: null };
+    const variables = { ITEMS: ['B', 'A', 'C', 'A'] };
     const evaluator = parseQTIExpression(
-      op('delete', variable('ITEMS'), variable('MISSING')),
+      op('delete', baseValue('identifier', 'A'), variable('ITEMS')),
+      variables,
+    );
+    expect(evaluator()).toEqual(['B', 'C']);
+  });
+
+  it('should return null when the container is null (NULL propagation)', () => {
+    const variables = { MISSING: null };
+    const evaluator = parseQTIExpression(
+      op('delete', baseValue('identifier', 'A'), variable('MISSING')),
       variables,
     );
     expect(evaluator()).toBe(null);
   });
 
-  it('should return null for delete on non-array', () => {
+  it('should return original container when value to delete not found', () => {
+    const variables = { ITEMS: ['A', 'B', 'C'] };
+    const evaluator = parseQTIExpression(
+      op('delete', baseValue('identifier', 'Z'), variable('ITEMS')),
+      variables,
+    );
+    expect(evaluator()).toEqual(['A', 'B', 'C']);
+  });
+
+  it('should return null when the value to delete is null (NULL propagation)', () => {
+    // qti-delete returns NULL if either sub-expression is NULL — v3
+    // section 2.11.3.18
+    //   https://www.imsglobal.org/spec/qti/v3p0/info/#OpDelete
+    const variables = { ITEMS: ['A', 'B', 'C'], MISSING: null };
+    const evaluator = parseQTIExpression(
+      op('delete', variable('MISSING'), variable('ITEMS')),
+      variables,
+    );
+    expect(evaluator()).toBe(null);
+  });
+
+  it('should return null when the second sub-expression is not a container', () => {
     const variables = { ITEM: 'single' };
     const evaluator = parseQTIExpression(
-      op('delete', variable('ITEM'), baseValue('identifier', 'single')),
+      op('delete', baseValue('identifier', 'single'), variable('ITEM')),
       variables,
     );
     expect(evaluator()).toBe(null);
@@ -1736,7 +1747,7 @@ describe('container operators', () => {
       ],
     };
     const evaluator = parseQTIExpression(
-      op('delete', variable('POINTS'), baseValue('point', '300 400')),
+      op('delete', baseValue('point', '300 400'), variable('POINTS')),
       variables,
     );
     expect(evaluator()).toEqual([
@@ -2525,6 +2536,61 @@ describe('contains as subset test (multiset semantics)', () => {
   });
 });
 
+describe('contains with ordered containers (strict sub-sequence)', () => {
+  //   https://www.imsglobal.org/spec/qti/v3p0/info/#OpContains
+  it.each([
+    ['[A,B,C] contains [B,C]', ['A', 'B', 'C'], ['B', 'C'], true],
+    ['[A,B,C] does not contain [C,A]', ['A', 'B', 'C'], ['C', 'A'], false],
+    ['[A,B,C] does not contain [A,C] (not consecutive)', ['A', 'B', 'C'], ['A', 'C'], false],
+    ['[A,B,A,B,C] contains [A,B,C]', ['A', 'B', 'A', 'B', 'C'], ['A', 'B', 'C'], true],
+    ['[A,B] does not contain [A,B,C]', ['A', 'B'], ['A', 'B', 'C'], false],
+  ])('%s', (_, container, sub, expected) => {
+    const { declarations, variables, exprNode } = assessmentExpr(
+      [
+        responseDecl('CONTAINER', 'identifier', 'ordered'),
+        responseDecl('SUB', 'identifier', 'ordered'),
+      ],
+      op('contains', variable('CONTAINER'), variable('SUB')),
+    );
+    variables.CONTAINER = container;
+    variables.SUB = sub;
+    expect(evaluateNode(exprNode, variables, declarations)).toBe(expected);
+  });
+
+  it.each([
+    ['B', 'C', true],
+    ['C', 'B', false],
+  ])('should treat a qti-ordered sub-expression [%s,%s] as ordered', (first, second, expected) => {
+    const { declarations, variables, exprNode } = assessmentExpr(
+      responseDecl('CONTAINER', 'identifier', 'ordered'),
+      op(
+        'contains',
+        variable('CONTAINER'),
+        op('ordered', baseValue('identifier', first), baseValue('identifier', second)),
+      ),
+    );
+    variables.CONTAINER = ['A', 'B', 'C'];
+    expect(evaluateNode(exprNode, variables, declarations)).toBe(expected);
+  });
+
+  it('should compare pairs in an ordered sub-sequence regardless of their internal order', () => {
+    const { declarations, variables, exprNode } = assessmentExpr(
+      [responseDecl('CONTAINER', 'pair', 'ordered'), responseDecl('SUB', 'pair', 'ordered')],
+      op('contains', variable('CONTAINER'), variable('SUB')),
+    );
+    variables.CONTAINER = [
+      ['A', 'B'],
+      ['C', 'D'],
+      ['E', 'F'],
+    ];
+    variables.SUB = [
+      ['D', 'C'],
+      ['F', 'E'],
+    ];
+    expect(evaluateNode(exprNode, variables, declarations)).toBe(true);
+  });
+});
+
 describe('substring case-sensitive attribute', () => {
   it('should be case-sensitive by default', () => {
     const evaluator = parseQTIExpression(
@@ -2923,8 +2989,8 @@ describe('match cardinality detection for non-direct variable references', () =>
       ],
       op(
         'match',
-        op('delete', variable('A'), baseValue('integer', 999)),
-        op('delete', variable('B'), baseValue('integer', 999)),
+        op('delete', baseValue('integer', 999), variable('A')),
+        op('delete', baseValue('integer', 999), variable('B')),
       ),
     );
     mockWarn.mockClear();
@@ -2951,7 +3017,7 @@ describe('Pair ordering in delete', () => {
   it('should delete pairs regardless of internal order — delete (B,A) removes (A,B)', () => {
     const { declarations, variables, exprNode } = assessmentExpr(
       responseDecl('PAIRS', 'pair', 'multiple'),
-      op('delete', variable('PAIRS'), baseValue('pair', 'B A')),
+      op('delete', baseValue('pair', 'B A'), variable('PAIRS')),
     );
     variables.PAIRS = [
       ['A', 'B'],
@@ -3117,7 +3183,7 @@ describe('contains cardinality detection for expression-generated containers', (
       op(
         'contains',
         variable('CONTAINER'),
-        op('delete', variable('CONTAINER'), baseValue('identifier', 'C')),
+        op('delete', baseValue('identifier', 'C'), variable('CONTAINER')),
       ),
     );
     variables.CONTAINER = ['A', 'B', 'C'];

@@ -1,5 +1,7 @@
+import contextlib
 import logging
 import os
+import re
 import signal
 
 try:
@@ -17,11 +19,13 @@ import threading
 import time
 import traceback as _traceback
 from functools import partial
+from ipaddress import ip_address
 from subprocess import CalledProcessError
 from subprocess import check_output
 
 import ifaddr
 import requests
+import zeroconf
 from cheroot.wsgi import Server as BaseServer
 from django.conf import settings
 from django.core.management import call_command
@@ -290,18 +294,14 @@ class ZeroConfPlugin(Monitor):
 
     def RUN(self):
         # Register the Kolibri zeroconf service so it will be discoverable on the network
-        # Keeps zeroconf off the CLI's import path.
+        # The CLI imports this module before Django setup.
         from kolibri.core.discovery.utils.network.broadcast import (  # noqa: PLC0415
             build_broadcast_instance,
         )
         from kolibri.core.discovery.utils.network.broadcast import (  # noqa: PLC0415
             NetworkDiscoveryBackend,
         )
-
-        # The CLI imports this module before Django setup.
-        from kolibri.core.discovery.utils.network.search import (  # noqa: PLC0415
-            NetworkLocationListener,
-        )
+        from kolibri.core.discovery.utils.network.search import NetworkLocationListener  # noqa: PLC0415
 
         instance = build_broadcast_instance(self.port)
 
@@ -362,6 +362,8 @@ status_map = {
 
 IS_RUNNING = {STATUS_RUNNING, STATUS_STARTING_UP, STATUS_SHUTTING_DOWN}
 
+PID_FILE_REPLACE_TIMEOUT = 1
+
 
 class PIDPlugin(SimplePlugin):
     def __init__(self, bus):
@@ -382,8 +384,26 @@ class PIDPlugin(SimplePlugin):
         """
         if status is None:
             _, _, _, status = _read_pid_file(self.bus.pid_file)
-        with open(self.bus.pid_file, "w") as f:
-            f.write(f"{os.getpid()}\n{self.bus.port}\n{self.bus.zip_port}\n{status}\n")
+        contents = f"{os.getpid()}\n{self.bus.port}\n{self.bus.zip_port}\n{status}\n"
+        tmp_pid_file = f"{self.bus.pid_file}.{os.getpid()}.{threading.get_ident()}.tmp"
+        try:
+            with open(tmp_pid_file, "w") as f:
+                f.write(contents)
+            deadline = time.monotonic() + PID_FILE_REPLACE_TIMEOUT
+            while True:
+                try:
+                    os.replace(tmp_pid_file, self.bus.pid_file)
+                    break
+                except PermissionError:
+                    # Windows refuses os.replace onto a file another handle holds open.
+                    if time.monotonic() >= deadline:
+                        with open(self.bus.pid_file, "w") as f:
+                            f.write(contents)
+                        break
+                    time.sleep(0.01)
+        finally:
+            with contextlib.suppress(FileNotFoundError):
+                os.unlink(tmp_pid_file)
 
     def SERVING(self, port):
         self.bus.port = port or self.bus.port
@@ -600,11 +620,6 @@ class ProcessControlPlugin(Monitor):
             if command == RESTART:
                 self.bus.log("Restarting server.")
                 self.thread.cancel()
-                if installation_types.WINDOWS in installation_type().lower():
-                    # On Windows, we need to restart the server with the same executable
-                    # magicbus gets messed up trying to find a python script to run
-                    sys.executable = sys.argv[0]
-                    sys.argv = sys.argv[1:]
                 self.bus.restart()
             elif command == STOP:
                 self.bus.log("Stopping server.")
@@ -708,11 +723,15 @@ class BaseKolibriProcessBus(ProcessBus):
 
     def __init__(
         self,
-        port=0,
-        zip_port=0,
+        port=None,
+        zip_port=None,
         pid_file=PID_FILE,
     ):
         self.pid_file = pid_file
+        if port is None:
+            port = conf.OPTIONS["Deployment"]["HTTP_PORT"]
+        if zip_port is None:
+            zip_port = conf.OPTIONS["Deployment"]["ZIP_CONTENT_PORT"]
         self.port = int(port)
         self.zip_port = int(zip_port)
 
@@ -739,9 +758,9 @@ class BaseKolibriProcessBus(ProcessBus):
         log_plugin = LogPlugin(self)
         log_plugin.subscribe()
 
-        signal_handler = SignalHandler(self)
+        self.signal_handler = SignalHandler(self)
 
-        signal_handler.subscribe()
+        self.signal_handler.subscribe()
 
         reload_plugin = ProcessControlPlugin(self)
         reload_plugin.subscribe()
@@ -994,6 +1013,14 @@ def get_status_from_pid_file():
     return status
 
 
+def get_port():
+    """
+    :return: the port in the PID file, or `None` when its process is not alive.
+    """
+    pid, port, _, _ = _read_pid_file(PID_FILE)
+    return port if pid is not None and pid_exists(pid) else None
+
+
 def get_zip_port():
     _, _, zip_port, _ = _read_pid_file(PID_FILE)
     return zip_port
@@ -1096,23 +1123,124 @@ def get_status():  # noqa: C901
     # raise NotRunning(STATUS_UNKNOW)
 
 
-def _get_local_ips():
-    """
-    Don't rely on the zeroconf get_all_addresses here as it's possible that it could have been modified to only detect
-    interfaces that support multicasting. This is a fallback to get all the local IP addresses of the machine, whether they
-    are multicast or not.
+# Linux names for Docker, Podman, LXC/LXD, veth pair, libvirt bridge, OpenVPN, WireGuard, NordVPN (NordLynx),
+# Cisco AnyConnect, ZeroTier and Tailscale adapters; utun is macOS's VPN adapter;
+# vmnet and vboxnet are VMware's and VirtualBox's host-only adapters.
+# ifaddr sets Adapter.name to the bytes adapter GUID on Windows; nice_name is always str.
+_VIRTUAL_ADAPTER_PREFIXES = (
+    "docker",
+    "podman",
+    "lxcbr",
+    "lxdbr",
+    "veth",
+    "virbr",
+    "tun",
+    "tap",
+    "wg",
+    "nordlynx",
+    "cscotun",
+    "zt",
+    "tailscale",
+    "utun",
+    "vmnet",
+    "vboxnet",
+)
 
-    However, we still exclude known dummy Windows 169.254.*.* addresses as these are not useful for the user to see.
-    :return: a list of IP addresses
-    """
-    return list(
-        {
-            addr.ip
-            for iface in ifaddr.get_adapters()
-            for addr in iface.ips
-            if addr.is_IPv4 and not addr.ip.startswith("169.254")
-        }
+# On Windows nice_name is the adapter description, e.g. "Hyper-V Virtual Ethernet Adapter" (WSL, Default Switch),
+# "VirtualBox Host-Only Ethernet Adapter", or the VPN adapters "TAP-Windows Adapter V9" (OpenVPN),
+# "WireGuard Tunnel", "Wintun Userspace Tunnel", "NordLynx Tunnel", "ZeroTier Virtual Port", "Tailscale Tunnel" and
+# "Cisco AnyConnect Secure Mobility Client Virtual Miniport Adapter for Windows x64".
+# Mobile Hotspot's "Microsoft Wi-Fi Direct Virtual Adapter" serves the LAN its clients join.
+_VIRTUAL_ADAPTER_DESCRIPTION_WORDS = (
+    "Hyper-V",
+    "VirtualBox",
+    "VMware",
+    "TAP-Windows",
+    "WireGuard",
+    "Wintun",
+    "NordLynx",
+    "AnyConnect",
+    "ZeroTier",
+    "Tailscale",
+)
+
+# Docker names user-defined network bridges "br-" plus the network ID's first 12 hex digits;
+# OpenWrt's LAN bridge is "br-lan".
+_DOCKER_NETWORK_BRIDGE = re.compile(r"br-[0-9a-f]{12}")
+
+# Cellular data adapters: Android's rmnet (Qualcomm), ccmni (MediaTek), and v4-<name>, the 464XLAT CLAT adapter;
+# Linux's WWAN modems, wwan0 or systemd's predictable ww<location>;
+# ppp, which PPP-mode USB modems and Linux/macOS L2TP/PPTP VPNs share.
+# Carriers often assign them RFC 1918 or 192.0.0.0/24 addresses.
+_CELLULAR_ADAPTER_PREFIXES = ("rmnet", "ccmni", "v4-", "ww", "ppp")
+
+
+def _is_off_lan_adapter(nice_name):
+    return (
+        nice_name.startswith(_VIRTUAL_ADAPTER_PREFIXES + _CELLULAR_ADAPTER_PREFIXES)
+        or _DOCKER_NETWORK_BRIDGE.fullmatch(nice_name) is not None
+        or any(word in nice_name for word in _VIRTUAL_ADAPTER_DESCRIPTION_WORDS)
     )
+
+
+def _get_local_ips():
+    is_off_lan_by_ip = {
+        addr.ip: _is_off_lan_adapter(iface.nice_name)
+        for iface in ifaddr.get_adapters()
+        for addr in iface.ips
+        if addr.is_IPv4 and not addr.ip.startswith("169.254")
+    }
+    # The Android app's monkey_patch_zeroconf.py replaces this with only up, multicast-capable adapters'
+    # addresses, which excludes cellular data adapters whatever their name.
+    multicast_ips = set(zeroconf.get_all_addresses())
+    outgoing_ip = get_outgoing_interface_address()
+    return sorted(
+        is_off_lan_by_ip,
+        key=lambda ip: (
+            not ip_address(ip).is_loopback,
+            is_off_lan_by_ip[ip],
+            ip not in multicast_ips,
+            not _is_lan_reachable(ip),
+            ip != outgoing_ip,
+            ip_address(ip).packed,
+        ),
+    )
+
+
+def _get_listen_ips():
+    listen_address = conf.OPTIONS["Deployment"]["LISTEN_ADDRESS"]
+    return _get_local_ips() if listen_address == "0.0.0.0" else [listen_address]
+
+
+def _is_lan_reachable(address):
+    parsed = ip_address(address)
+    return (parsed.is_private or parsed.is_global) and not (
+        parsed.is_loopback or parsed.is_link_local
+    )
+
+
+def get_lan_address():
+    """
+    :return: `None` when the server listens on no LAN-reachable address.
+    """
+    return next(filter(_is_lan_reachable, _get_listen_ips()), None)
+
+
+def get_outgoing_interface_address():
+    """
+    :return: the default-route interface's address, or `None` when there is
+             no default route.
+    """
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        # 203.0.113.0/24 is TEST-NET-3 (RFC 5737): a globally-routed-looking
+        # destination that matches the default route without being contacted.
+        s.connect(("203.0.113.1", 9))
+        return s.getsockname()[0]
+    except OSError:
+        return None
+    finally:
+        s.close()
 
 
 def get_urls(listen_port=None):
@@ -1128,17 +1256,17 @@ def get_urls(listen_port=None):
         urls = []
         if port:
             try:
-                all_addresses = (
-                    _get_local_ips()
-                    if conf.OPTIONS["Deployment"]["LISTEN_ADDRESS"] == "0.0.0.0"
-                    else [conf.OPTIONS["Deployment"]["LISTEN_ADDRESS"]]
-                )
-                for ip in all_addresses:
-                    urls.append(f"http://{ip}:{port}/")
+                listen_ips = _get_listen_ips()
+                list_hostnames = any(map(_is_lan_reachable, listen_ips))
             except RuntimeError:
                 logger.error("Error retrieving network interface list!")
-            for hostname in get_local_hostnames():
-                urls.append(f"http://{hostname}:{port}/")
+                listen_ips = []
+                list_hostnames = True
+            for ip in listen_ips:
+                urls.append(f"http://{ip}:{port}/")
+            if list_hostnames:
+                for hostname in get_local_hostnames():
+                    urls.append(f"http://{hostname}:{port}/")
         return STATUS_RUNNING, urls
     except NotRunning as e:
         return e.status_code, []
@@ -1167,9 +1295,6 @@ def get_installer_version(installer_type):
     def get_deb_version():
         return get_debian_pkg_version("kolibri")
 
-    def get_apk_version():
-        return os.environ.get("KOLIBRI_APK_VERSION_NAME")
-
     installer_version = os.environ.get("KOLIBRI_INSTALLER_VERSION")
     if installer_version:
         return installer_version
@@ -1177,7 +1302,6 @@ def get_installer_version(installer_type):
     version_funcs = {
         installation_types.DEB: get_deb_version,
         installation_types.KOLIBRI_SERVER: get_deb_kolibriserver_version,
-        installation_types.APK: get_apk_version,
     }
 
     if installer_type in version_funcs:
@@ -1236,12 +1360,6 @@ def installation_type(cmd_line=None):  # noqa:C901
                 package = is_debian_package()
                 if package != "whl":
                     install_type = is_kolibri_server()
-            elif "\\Scripts\\kolibri" in launcher:
-                paths = sys.path
-                for path in paths:
-                    if "kolibri.exe" in path:
-                        install_type = installation_types.WINDOWS
-                        break
             elif "start" in cmd_line:
                 install_type = installation_types.WHL
 

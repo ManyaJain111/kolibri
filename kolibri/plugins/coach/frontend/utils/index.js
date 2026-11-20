@@ -1,3 +1,5 @@
+import { displayQuestionTitle } from 'kolibri-common/strings/enhancedQuizManagementStrings';
+
 const ratio = question => {
   return question.correct / question.total;
 };
@@ -27,6 +29,17 @@ export const getDifficultQuestions = questions => {
 };
 
 /**
+ * Title for a quiz question in coach reports.
+ * @param {object} question - A quiz question from the exam's question_sources.
+ * @param {object[]} exercises - The quiz's exercise content nodes.
+ * @returns {string}
+ */
+export function quizQuestionTitle(question, exercises) {
+  const exercise = exercises.find(node => node.id === question.exercise_id);
+  return displayQuestionTitle(question, exercise?.title ?? '');
+}
+
+/**
  * Merges params and query from a new route into the current route, overriding existing values.
  * @param {object} route - The current route object with params and query.
  * @param {object} newRoute - The new route object to merge params and query from.
@@ -45,4 +58,33 @@ export function overrideRoute(route, newRoute) {
       ...newRoute.query,
     },
   };
+}
+
+/**
+ * A learner's per-objective scores on a unit's active test.
+ * @param {object} prefetchedData - A unit's report info: `{ activeTestType, reportData }`.
+ * @param {string} learnerId - The learner to look up.
+ * @returns {object|null} Correct answers keyed by learning objective id, or null if the
+ * learner has no results on the active test.
+ */
+export function learnerTestScores(prefetchedData, learnerId) {
+  return activeTestReport(prefetchedData)?.scores?.[learnerId] || null;
+}
+
+export function learnerStartedTest(prefetchedData, learnerId) {
+  return Boolean(activeTestReport(prefetchedData)?.started?.includes(learnerId));
+}
+
+export function learnerStartedUnit(prefetchedData, learnerId) {
+  const { pre_test, post_test } = prefetchedData?.reportData || {};
+  return [pre_test, post_test].some(
+    test => test?.scores?.[learnerId] || test?.started?.includes(learnerId),
+  );
+}
+
+function activeTestReport(prefetchedData) {
+  const { activeTestType, reportData } = prefetchedData || {};
+  if (!activeTestType) return null;
+  const testKey = activeTestType === 'post' ? 'post_test' : 'pre_test';
+  return reportData?.[testKey];
 }

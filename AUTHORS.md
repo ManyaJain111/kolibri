@@ -229,3 +229,27 @@ If you have contributed to Kolibri, feel free to add your name and Github accoun
 | Satyam Pandey | SatyamPandey-07 |
 | Nathan Suttie | natesute |
 | Rishi Raj | rishiraj38 |
+| Dimitris Mylonas | Dimi20cen |
+| Jian-Hong Pan | starnight |
+| Damián Nohales | dnohales |
+| - | albanobattistella |
+| James Kainer | JamesKainer |
+| Hari Rana | TheEvilSkeleton |
+| Will Thompson | wjt |
+| A Holt | holta |
+| Shrenik Bhura | intelliant01 |
+| Simon Schampijer | erikos |
+|  Mohamad Saad Godikat | saadgodikat |
+| Dhruv Dagar | dhruv-dagar |
+| - | nightcityblade |
+| Hajar Benhadj | hajar-benhadj |
+| Adib Mubarak | adibmbrk |
+| Manya Jain | ManyaJain111 |
+| Shlok Goyal | Shlok1729 |
+| Dieimes Nunes | DieimesNunes |
+| Amrit Rai | amritraj7237 |
+| Dhruv Raj Singh | rajdhruvsingh |
+| Hitesh_G | Hitesh-XS |
+| Siddhant | Siddhazntx |
+| SARWAR JAHIN | sarwar-jahin-port |
+| Tushar Singh | tushaar-05 |

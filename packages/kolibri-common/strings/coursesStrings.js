@@ -45,6 +45,16 @@ export const coursesStrings = createTranslator('CoursesStrings', {
     message: 'Unit {unitNumber, number}: {unitTitle} - Post-test',
     context: 'Label for the post-test of a unit.',
   },
+  preTestItemLabel: {
+    message: '{unitTitle} - Pre-test',
+    context:
+      'Name of a unit pre-test in a coach activity notification, where the unit number is not available.',
+  },
+  postTestItemLabel: {
+    message: '{unitTitle} - Post-test',
+    context:
+      'Name of a unit post-test in a coach activity notification, where the unit number is not available.',
+  },
   selectedLearnersLabel: {
     message: 'Selected learners',
     context: 'Label for the list of selected learners when assigning a course.',
@@ -369,6 +379,16 @@ export const coursesStrings = createTranslator('CoursesStrings', {
     message: 'Previous resource',
     context: 'Action label for navigating to the previous resource in a course unit',
   },
+  footerNavigationAccessibleLabel: {
+    message: '{label}: {title}',
+    context:
+      "Accessible name for the icon button in the course unit side panel's navigation footer, read by screen readers. Combines the footer's visible label (e.g. 'Up next', 'Next resource', 'Previous resource') with the title of the unit or resource the button navigates to.",
+  },
+  footerNavigationUnavailableAccessibleLabel: {
+    message: '{title} is not available yet',
+    context:
+      "Accessible name for the icon button in the course unit side panel's navigation footer when the unit it leads to is locked and cannot be navigated to yet. Includes the locked unit's title.",
+  },
   courseDetailsAction: {
     message: 'Course details',
     context: 'Action label to view course details',
@@ -492,7 +512,13 @@ export const coursesStrings = createTranslator('CoursesStrings', {
   },
   noProgressLabel: {
     message: 'No progress yet',
-    context: 'Heading in the learner side panel when the learner has not attempted any test',
+    context:
+      'Shown in the learner side panel when the learner has not attempted any test, either for the whole course or for a single unit',
+  },
+  testNotSubmittedLabel: {
+    message: "The learner hasn't submitted the test yet",
+    context:
+      'Shown in the learner side panel for a unit whose test the learner has opened but not submitted',
   },
   hasntStartedUnitsLabel: {
     message: "{name} hasn't started any units",
@@ -594,6 +620,11 @@ export const coursesStrings = createTranslator('CoursesStrings', {
     message: 'Unit {num, number} in progress',
     context:
       'Status label on the Courses list page when learners are working on lessons between the pre- and post-tests; {num} is the 1-based unit number',
+  },
+  unitNotStartedLabel: {
+    message: 'Unit {num, number} not started',
+    context:
+      'Status label on the Courses list page when the previous unit is complete and the pre-test for the next unit has not been started yet; {num} is the 1-based unit number',
   },
   preTestRunningLabel: {
     message: 'Pre-test running · Unit {num, number}',

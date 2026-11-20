@@ -3,6 +3,10 @@ import items from '../../__fixtures__/items';
 import { renderAssessmentItem } from '../../__tests__/helpers';
 import { answerGuideStrings } from '../../AnswerGuide.vue';
 
+// MathML fixtures take SafeHTML's MathJax path in jsdom, which has no layout;
+// its font URL needs plugin URL data that tests lack.
+jest.mock('kolibri/urls');
+
 // Vue 2 drops aria-selected when bound to boolean false; SimpleChoice coerces to String()
 // so the attribute always renders. This helper accepts either behavior.
 function expectNotSelected(element) {
@@ -132,7 +136,9 @@ describe('Single cardinality', () => {
 
     await fireEvent.click(choices[0]);
     const result = checkAnswer();
-    expect(result.answerState[singleFixture.responseIdentifier]).toBe(firstChoiceId(xml()));
+    expect(result.answerState.responses[singleFixture.responseIdentifier]).toBe(
+      firstChoiceId(xml()),
+    );
 
     setAnswerState({});
     await screen.findAllByRole('option');
@@ -145,7 +151,7 @@ describe('Single cardinality', () => {
 
   it('restores selection from injected answerState on mount', () => {
     renderAssessmentItem(xml(), {
-      answerState: { [singleFixture.responseIdentifier]: firstChoiceId(xml()) },
+      answerState: { responses: { [singleFixture.responseIdentifier]: firstChoiceId(xml()) } },
     });
     const selected = screen
       .getAllByRole('option')
@@ -155,7 +161,7 @@ describe('Single cardinality', () => {
 
   it('reacts to external setAnswerState changes', async () => {
     const { setAnswerState } = renderAssessmentItem(xml());
-    setAnswerState({ [singleFixture.responseIdentifier]: firstChoiceId(xml()) });
+    setAnswerState({ responses: { [singleFixture.responseIdentifier]: firstChoiceId(xml()) } });
     await screen.findAllByRole('option');
     const selected = screen
       .getAllByRole('option')
@@ -201,7 +207,7 @@ describe('Multi cardinality', () => {
   it('restores array-valued answerState on mount', () => {
     renderAssessmentItem(xml(), {
       answerState: {
-        [multiBoundedFixture.responseIdentifier]: [firstChoiceId(xml())],
+        responses: { [multiBoundedFixture.responseIdentifier]: [firstChoiceId(xml())] },
       },
     });
     const selected = screen

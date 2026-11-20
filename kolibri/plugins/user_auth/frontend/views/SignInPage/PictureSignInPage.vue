@@ -32,7 +32,14 @@
       type="error"
       :dismissible="false"
     >
-      {{ wrongPicturesTryAgain$() }}
+      <span
+        aria-hidden="true"
+        data-testid="wrong-pictures-visible-message"
+      >{{ wrongPicturesTryAgain$() }}</span>
+      <span
+        class="visuallyhidden"
+        data-testid="wrong-pictures-sr-message"
+      >{{ wrongWordsTryAgain$() }}</span>
     </UiAlert>
 
     <PicturePasswordGrid
@@ -73,21 +80,18 @@
   import { isTouchDevice } from 'kolibri/utils/browserInfo';
   import { picturePasswordStrings } from 'kolibri-common/strings/picturePasswords';
   import UiAlert from 'kolibri-design-system/lib/keen/UiAlert';
+  import useAuthPageTitle from '../../composables/useAuthPageTitle';
   import AuthBase from '../AuthBase';
   import useAuthFlow from '../../composables/useAuthFlow';
   import useAuthWatcher from '../../composables/useAuthWatcher';
   import useAuthRouter from '../../composables/useAuthRouter';
   import AuthContextHeading from '../AuthContextHeading.vue';
+  import { pageTitleStrings } from '../pageTitleStrings';
   import PicturePasswordGrid from './PictureSignIn/PicturePasswordGrid.vue';
   import PicturePasswordConfirmModal from './PictureSignIn/PicturePasswordConfirmModal.vue';
 
   export default {
     name: 'PictureSignInPage',
-    metaInfo() {
-      return {
-        title: this.$tr('documentTitle'),
-      };
-    },
     components: {
       AuthBase,
       AuthContextHeading,
@@ -102,7 +106,7 @@
       const { login } = useUser();
       const { createSnackbar } = useSnackbar();
       const { windowIsLandscape } = useKResponsiveWindow();
-      const { wrongPicturesTryAgain$ } = picturePasswordStrings;
+      const { wrongPicturesTryAgain$, wrongWordsTryAgain$ } = picturePasswordStrings;
       const { nextParam, defaultRoute, getFacilitySelectionRoute } = useAuthRouter(route);
       const {
         hasMultipleFacilities,
@@ -113,6 +117,7 @@
       } = useAuthFlow();
       const { watchForFacilityChange, watchForFacilityConfigChange } = useAuthWatcher();
       const { setSelectedFacilityId } = useFacilitySelect();
+      useAuthPageTitle(pageTitleStrings.pictureSignInPageTitle$);
 
       const busy = ref(false);
       const clearSequence = ref(false);
@@ -261,13 +266,8 @@
         onGridSelect,
         // strings
         wrongPicturesTryAgain$,
+        wrongWordsTryAgain$,
       };
-    },
-    $trs: {
-      documentTitle: {
-        message: 'Sign in to Kolibri',
-        context: 'User sign in page for using picture password.',
-      },
     },
   };
 

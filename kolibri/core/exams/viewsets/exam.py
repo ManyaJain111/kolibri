@@ -14,9 +14,11 @@ from rest_framework.response import Response
 from rest_framework.serializers import BooleanField
 from rest_framework.serializers import CharField
 from rest_framework.serializers import IntegerField
+from rest_framework.serializers import JSONField
 from rest_framework.serializers import ListField
 from rest_framework.serializers import ModelSerializer
 from rest_framework.serializers import PrimaryKeyRelatedField
+from rest_framework.serializers import RegexField
 from rest_framework.serializers import Serializer
 from rest_framework.serializers import ValidationError
 
@@ -51,7 +53,11 @@ _EXAM_ONLY_FIELDS = frozenset({"active", "archive", "date_archived", "date_activ
 
 class QuestionSourceSerializer(Serializer):
     exercise_id = HexUUIDField(format="hex")
-    question_id = HexUUIDField(format="hex")
+    # A hex assessment item id, or a QTI item identifier: Studio writes either
+    # "K" + 22 base64url characters or the QTI editor's slug, e.g. "item_k3j9x0ab".
+    question_id = RegexField(
+        r"^(?:[0-9a-f]{32}|[A-Za-z_][A-Za-z0-9_.-]*)$", max_length=200
+    )
     title = CharField(default="", allow_blank=True)
     counter_in_exercise = IntegerField()
 
@@ -65,6 +71,21 @@ class QuizSectionSerializer(Serializer):
         required=False,
         max_length=MAX_QUESTIONS_PER_QUIZ_SECTION,
     )
+
+
+class QuestionSourcesField(JSONField):
+    """
+    Validates writes as V3 quiz sections, but returns the stored JSON unchanged on
+    read. Quizzes created before V3 keep their original question_sources shape,
+    which the frontend converts, so it must not be reshaped into sections here.
+    """
+
+    def to_internal_value(self, data):
+        serializer = QuizSectionSerializer(
+            many=True, data=data, partial=getattr(self.root, "partial", False)
+        )
+        serializer.is_valid(raise_exception=True)
+        return serializer.validated_data
 
 
 class ExamSerializer(ModelSerializer):
@@ -84,7 +105,7 @@ class ExamSerializer(ModelSerializer):
         child=PrimaryKeyRelatedField(queryset=FacilityUser.objects.all()),
         required=False,
     )
-    question_sources = QuizSectionSerializer(many=True, required=False)
+    question_sources = QuestionSourcesField(required=False)
     draft = BooleanField(default=True, required=False)
 
     class Meta:
@@ -199,8 +220,10 @@ class ExamSerializer(ModelSerializer):
                         "Cannot create an Exam without any question_sources",
                         code=error_constants.INVALID,
                     )
+                # questions is optional on a section, so the key can be absent
                 if all(
-                    not section["questions"] for section in attrs["question_sources"]
+                    not section.get("questions")
+                    for section in attrs["question_sources"]
                 ):
                     raise ValidationError(
                         "Cannot create an Exam without any questions",
@@ -583,10 +606,13 @@ class ExamViewset(ValuesViewset):
     def serialize_object(self, pk=None):
         pk = pk or self.kwargs.get("pk")
         is_draft, pk = self._is_draft_pk(pk)
+        exam_queryset, draft_queryset = self.filter_querysets(
+            self.get_queryset(), self.get_draft_queryset()
+        )
         try:
             if is_draft:
-                return self.serialize_draft(self.get_draft_queryset().filter(pk=pk))[0]
-            return self.serialize(self.get_queryset().filter(pk=pk))[0]
+                return self.serialize_draft(draft_queryset.filter(pk=pk))[0]
+            return self.serialize(exam_queryset.filter(pk=pk))[0]
         except (IndexError, ValueError, TypeError) as e:
             raise Http404("No Exam matches the given query.") from e
 

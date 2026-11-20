@@ -10,6 +10,8 @@ jest.mock('alwan', () => ({
   },
 }));
 
+jest.mock('alwan/css', () => {});
+
 const { methods } = EpubRendererIndex;
 
 describe('updateProgress', () => {
@@ -44,5 +46,35 @@ describe('updateProgress', () => {
     expect(context.$emit.mock.calls[0][1]).not.toEqual(
       Object.keys(context.visitedPages).length / context.locations.length,
     );
+  });
+});
+
+describe('relocatedHandler', () => {
+  let context = {};
+  const location = {
+    atEnd: false,
+    start: { percentage: 0.012, cfi: 'epubcfi(/6/2!/4/2)', location: 0 },
+    end: { percentage: 0.02, location: 0 },
+  };
+
+  beforeEach(() => {
+    context = {
+      sliderValue: 1.2,
+      relocationCount: 0,
+      locations: ['epubcfi(/6/2!/4/2)'],
+      updateCurrentSection: jest.fn(),
+      storeVisitedPage: jest.fn(),
+      finish: jest.fn(),
+      updateProgress: jest.fn(),
+      updateContentState: jest.fn(),
+    };
+  });
+
+  it('should count every relocation, even one that leaves sliderValue unchanged', () => {
+    methods.relocatedHandler.call(context, location);
+    methods.relocatedHandler.call(context, location);
+
+    expect(context.sliderValue).toBe(1.2);
+    expect(context.relocationCount).toBe(2);
   });
 });

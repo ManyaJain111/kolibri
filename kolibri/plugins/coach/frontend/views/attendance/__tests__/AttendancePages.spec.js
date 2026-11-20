@@ -1,7 +1,8 @@
 import Vuex from 'vuex';
 import VueRouter from 'vue-router';
-import { render, screen, fireEvent, waitFor } from '@testing-library/vue';
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/vue';
 import { createLocalVue } from '@vue/test-utils';
+import { pageHeading } from 'kolibri/composables/usePageTitle';
 import { coreString } from 'kolibri/uiText/commonCoreStrings';
 // eslint-disable-next-line import-x/named
 import useSnackbar, { useSnackbarMock } from 'kolibri/composables/useSnackbar';
@@ -22,15 +23,16 @@ jest.mock('kolibri-common/composables/usePageLoading', () => ({
 }));
 jest.mock('../../../composables/useCoreCoach', () => {
   const { ref, computed } = require('vue');
+  const store = jest.requireActual('../../../store').default;
   return {
     __esModule: true,
     default: jest.fn(() => ({
       classId: computed(() => 'test-class'),
+      className: computed(() => store.state.classSummary.name),
       appBarTitle: ref('Coach'),
       initClassInfo: jest.fn(),
       refreshClassSummary: jest.fn(),
       authorized: ref(true),
-      pageTitle: ref(''),
       groups: ref([]),
     })),
   };
@@ -201,6 +203,18 @@ describe('AttendanceNewPage', () => {
     jest.restoreAllMocks();
   });
 
+  it('sets the tab title to the class name', async () => {
+    renderNewPage();
+    await global.flushPromises();
+    expect(document.title).toBe('Test Class - Kolibri');
+  });
+
+  it('tells the page shell it renders its own h1', async () => {
+    renderNewPage();
+    await global.flushPromises();
+    expect(pageHeading.value).toBe('');
+  });
+
   it('renders learners sorted alphabetically', async () => {
     renderNewPage();
     await waitFor(() => {
@@ -287,7 +301,7 @@ describe('AttendanceNewPage', () => {
     expect(buttons.length).toBe(2);
   });
 
-  it('re-opens modal on a single click after "Go back" was clicked in the mark-all modal', async () => {
+  it('re-opens modal on a single click after "Cancel" was clicked in the mark-all modal', async () => {
     // Regression: after cancelling the modal, the KSwitch stayed visually "on" even though
     // allPresent was false. The next click fired @change(false) instead of @change(true),
     // so the modal never re-opened — requiring a second click to trigger it again.
@@ -302,8 +316,10 @@ describe('AttendanceNewPage', () => {
       expect(screen.getByRole('dialog')).toBeInTheDocument();
     });
 
-    // Click "Go back" inside the modal
-    await fireEvent.click(screen.getByRole('button', { name: coreString('goBackAction') }));
+    // Click "Cancel" inside the modal
+    await fireEvent.click(
+      within(screen.getByRole('dialog')).getByRole('button', { name: coreString('cancelAction') }),
+    );
     await waitFor(() => {
       expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     });
@@ -329,7 +345,7 @@ describe('AttendanceNewPage', () => {
       expect(screen.getByRole('dialog')).toBeInTheDocument();
     });
 
-    await fireEvent.click(screen.getByText(attendanceStrings.markAllPresentAction$()));
+    await fireEvent.click(screen.getByRole('button', { name: coreString('confirmAction') }));
 
     await waitFor(() => {
       expect(screen.getByText(attendanceStrings.presentCount$({ count: 3 }))).toBeInTheDocument();
@@ -344,9 +360,7 @@ describe('AttendanceNewPage', () => {
     });
 
     await fireEvent.click(getLearnerSwitch('learner-a'));
-    await fireEvent.click(
-      screen.getByRole('button', { name: attendanceStrings.submitAttendanceAction$() }),
-    );
+    await fireEvent.click(screen.getByRole('button', { name: coreString('saveAction') }));
     await global.flushPromises();
 
     expect(createSession).toHaveBeenCalledWith(
@@ -371,9 +385,7 @@ describe('AttendanceNewPage', () => {
     const initialRoute = router.currentRoute.name;
 
     await fireEvent.click(getLearnerSwitch('learner-a'));
-    await fireEvent.click(
-      screen.getByRole('button', { name: attendanceStrings.submitAttendanceAction$() }),
-    );
+    await fireEvent.click(screen.getByRole('button', { name: coreString('saveAction') }));
     await global.flushPromises();
 
     expect(createSnackbar).toHaveBeenCalled();
@@ -406,6 +418,18 @@ describe('AttendanceEditPage', () => {
 
   afterEach(() => {
     jest.restoreAllMocks();
+  });
+
+  it('sets the tab title to the class name', async () => {
+    renderEditPage();
+    await global.flushPromises();
+    expect(document.title).toBe('Test Class - Kolibri');
+  });
+
+  it('tells the page shell it renders its own h1', async () => {
+    renderEditPage();
+    await global.flushPromises();
+    expect(pageHeading.value).toBe('');
   });
 
   it('fetches session and records on mount and pre-populates learner toggles', async () => {
@@ -561,7 +585,7 @@ describe('AttendanceEditPage', () => {
     await global.flushPromises();
 
     await waitFor(() => {
-      expect(screen.getByText(attendanceStrings.noLearnersInClassMessage$())).toBeInTheDocument();
+      expect(screen.getByText(coreString('noLearnersInClassLabel'))).toBeInTheDocument();
     });
 
     expect(
@@ -582,9 +606,7 @@ describe('AttendanceEditPage', () => {
       ).toBeInTheDocument();
     });
 
-    expect(
-      screen.queryByText(attendanceStrings.noLearnersInClassMessage$()),
-    ).not.toBeInTheDocument();
+    expect(screen.queryByText(coreString('noLearnersInClassLabel'))).not.toBeInTheDocument();
     expect(
       screen.queryByRole('button', { name: coreString('saveAction') }),
     ).not.toBeInTheDocument();

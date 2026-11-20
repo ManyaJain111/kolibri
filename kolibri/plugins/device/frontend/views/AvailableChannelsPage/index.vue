@@ -70,7 +70,10 @@
         </template>
 
         <template #default="{ showItem, handleChange, itemIsSelected }">
-          <p v-if="!channelsAreAvailable && !status">
+          <p
+            v-if="!channelsAreAvailable && !status"
+            data-testid="no-channels"
+          >
             {{ $tr('noChannelsAvailable') }}
           </p>
 
@@ -132,7 +135,9 @@
 
 <script>
 
+  import { computed } from 'vue';
   import { mapState, mapGetters } from 'vuex';
+  import { createTranslator } from 'kolibri/utils/i18n';
   import find from 'lodash/find';
   import differenceBy from 'lodash/differenceBy';
   import omit from 'lodash/omit';
@@ -145,6 +150,7 @@
   import { TransferTypes, TaskTypes } from 'kolibri-common/utils/syncTaskUtils';
   import plugin_data from 'kolibri-plugin-data';
   import { pageLoading } from 'kolibri-common/composables/usePageLoading';
+  import usePageTitle from 'kolibri/composables/usePageTitle';
   import commonDeviceStrings from '../commonDeviceStrings';
   import ChannelPanel from '../ManageContentPage/ChannelPanel/WithImportDetails';
   import ContentWizardUiAlert from '../SelectContentPage/ContentWizardUiAlert';
@@ -154,17 +160,24 @@
   import FilteredChannelListContainer from '../ManageContentPage/FilteredChannelListContainer';
   import SelectionBottomBar from '../ManageContentPage/SelectionBottomBar';
   import taskNotificationMixin from '../taskNotificationMixin';
+  import store from '../../store';
   import ChannelTokenModal from './ChannelTokenModal';
   import ChannelUpdateModal from './ChannelUpdateModal';
   import { getFreeSpaceOnServer } from './api';
 
+  export const pageTitleStrings = createTranslator('AvailableChannelsPage', {
+    documentTitleForLocalImport: {
+      message: "Available Channels on '{driveName}'",
+      context: 'Indicates the available resource channels on a device.',
+    },
+    documentTitleForRemoteImport: {
+      message: 'Available Channels on Kolibri Studio',
+      context: 'Indicates the available resource channels on Kolibri Studio.',
+    },
+  });
+
   export default {
     name: 'AvailableChannelsPage',
-    metaInfo() {
-      return {
-        title: this.documentTitle,
-      };
-    },
     components: {
       ChannelPanel,
       ChannelTokenModal,
@@ -178,6 +191,24 @@
     mixins: [commonCoreStrings, commonDeviceStrings, taskNotificationMixin],
     setup() {
       useContentTasks();
+      const documentTitle = computed(() => {
+        const { transferType, selectedDrive, selectedPeer } = store.state.manageContent.wizard;
+        switch (transferType) {
+          case TransferTypes.LOCALIMPORT:
+            return pageTitleStrings.documentTitleForLocalImport$({
+              driveName: selectedDrive.name,
+            });
+          case TransferTypes.REMOTEIMPORT:
+            return pageTitleStrings.documentTitleForRemoteImport$();
+          case TransferTypes.PEERIMPORT:
+            return pageTitleStrings.documentTitleForLocalImport$({
+              driveName: selectedPeer.device_name,
+            });
+          default:
+            return '';
+        }
+      });
+      usePageTitle(documentTitle, { hasVisibleHeading: true });
       return { pageLoading };
     },
     data() {
@@ -248,22 +279,6 @@
       },
       setupMode() {
         return Boolean(this.$route.query.setup);
-      },
-      documentTitle() {
-        switch (this.transferType) {
-          case TransferTypes.LOCALIMPORT:
-            return this.$tr('documentTitleForLocalImport', {
-              driveName: this.selectedDrive.name,
-            });
-          case TransferTypes.REMOTEIMPORT:
-            return this.$tr('documentTitleForRemoteImport');
-          case TransferTypes.PEERIMPORT:
-            return this.$tr('documentTitleForLocalImport', {
-              driveName: this.selectedPeer.device_name,
-            });
-          default:
-            return '';
-        }
       },
       toolbarTitle() {
         switch (this.transferType) {
@@ -471,14 +486,6 @@
         message: 'Import with token',
         context:
           "If a user needs to import learning resources from a private/unlisted channel, they would click on the 'Import with token' button above the channel list.",
-      },
-      documentTitleForLocalImport: {
-        message: "Available Channels on '{driveName}'",
-        context: 'Indicates the available resource channels on a device.',
-      },
-      documentTitleForRemoteImport: {
-        message: 'Available Channels on Kolibri Studio',
-        context: 'Indicates the available resource channels on Kolibri Studio.',
       },
       noChannelsAvailable: {
         message: 'No channels are available on this device',

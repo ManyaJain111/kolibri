@@ -32,6 +32,8 @@ AppVersion={#AppVersion}
 AppPublisher={#AppPublisher}
 AppPublisherURL={#AppPublisherURL}
 DefaultDirName={autopf64}\{#AppName}
+DefaultGroupName={#AppName}
+DisableProgramGroupPage=yes
 OutputDir=dist-installer
 OutputBaseFilename=kolibri-setup-{#AppVersion}
 WizardStyle=modern
@@ -50,6 +52,7 @@ ShowLanguageDialog=yes
 [Registry]
 ; This registry key is used to detect the installed version for upgrades/repairs.
 Root: HKLM; Subkey: "Software\Kolibri"; ValueType: string; ValueName: "Version"; ValueData: "{#AppVersion}"; Flags: uninsdeletekey
+Root: HKLM; Subkey: "Software\Kolibri"; ValueType: string; ValueName: "Language"; ValueData: "{cm:LanguageCode}"
 Root: HKLM; Subkey: "Software\Kolibri"; ValueType: dword; ValueName: "ShowTrayIcon"; ValueData: "1"; Tasks: installservice
 Root: HKLM; Subkey: "Software\Kolibri"; ValueType: dword; ValueName: "ShowTrayIcon"; ValueData: "0"; Tasks: not installservice
 Root: HKLM; Subkey: "SOFTWARE\Microsoft\Windows\CurrentVersion\Run"; ValueName: "KolibriTray"; Flags: uninsdeletevalue
@@ -439,6 +442,9 @@ begin
     Log('Applying common service configuration...');
     ExecChecked(NssmPath, 'set "{#ServiceName}" ObjectName "NT AUTHORITY\LocalService"', '', 'Set Service User to LocalService');
     ExecChecked(NssmPath, 'set "{#ServiceName}" Description "This service runs the Kolibri server in the background"', '', 'Set Service Description');
+    // NSSM posts WM_CLOSE to the server's hidden stop window, then terminates it
+    // after this many ms. The 1500 ms default is too short for a graceful stop.
+    ExecChecked(NssmPath, 'set "{#ServiceName}" AppStopMethodWindow 30000', '', 'Set Service Graceful Stop Timeout');
     ExecChecked(ExpandConstant(ICACLS_EXE_PATH), '"' + ExpandConstant('{#KolibriDataDir}') + '" /grant "NT AUTHORITY\LocalService":(OI)(CI)M /T', '', 'Grant Permissions to Data Folder for Service');
     ExecChecked(ExpandConstant(ICACLS_EXE_PATH), '"' + ExpandConstant('{#KolibriDataDir}') + '" /grant "Users":(OI)(CI)M /T', '', 'Grant Permissions to Data Folder for Users');
 

@@ -67,6 +67,8 @@ class NetworkLocationSerializer(serializers.ModelSerializer):
         )
 
     def validate(self, data):
+        if "base_url" not in data:
+            return super().validate(data)
         try:
             client = NetworkClient.discover_from_address(data["base_url"])
         except (errors.NetworkClientError, errors.URLParseError) as e:
@@ -136,13 +138,17 @@ class NetworkLocationViewSet(viewsets.ModelViewSet):
         if not id_filter:
             id_filter = self.kwargs["pk"]
 
-        # allow detail lookup by id or instance_id
+        # allow detail lookup by id or instance_id. Several locations can share an
+        # instance_id (e.g. a peer reachable by both IP address and hostname), so
+        # pick the oldest one, using id as a tie-breaker, to keep the choice stable.
         for filter_key in ("id", "instance_id"):
-            try:
-                obj = queryset.get(**{filter_key: id_filter})
+            obj = (
+                queryset.filter(**{filter_key: id_filter})
+                .order_by("added", "id")
+                .first()
+            )
+            if obj is not None:
                 break
-            except NetworkLocation.DoesNotExist:
-                pass
         else:
             raise NotFound()
 

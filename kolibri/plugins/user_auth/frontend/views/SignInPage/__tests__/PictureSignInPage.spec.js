@@ -11,6 +11,9 @@ import useAuthFlow from '../../../composables/useAuthFlow';
 import useAuthWatcher from '../../../composables/useAuthWatcher';
 import useAuthRouter from '../../../composables/useAuthRouter';
 import PictureSignInPage from '../PictureSignInPage.vue';
+import UserAuthLayout from '../../UserAuthLayout';
+import { pageTitleStrings } from '../../pageTitleStrings';
+import describeAuthPageTitle from '../../__tests__/describeAuthPageTitle';
 
 jest.mock('kolibri/composables/useUser');
 jest.mock('kolibri/composables/useSnackbar');
@@ -45,9 +48,16 @@ function createUser() {
   return userEvent.setup({ advanceTimers: jest.advanceTimersByTime.bind(jest) });
 }
 
+const { pictureSignInPageTitle$ } = pageTitleStrings;
+
+const PageInLayout = {
+  components: { UserAuthLayout, PictureSignInPage },
+  template: '<UserAuthLayout><PictureSignInPage /></UserAuthLayout>',
+};
+
 const MOCK_LEARNER_NAME = 'Alice Example';
 
-function renderComponent() {
+function renderComponent({ inLayout = false } = {}) {
   useRoute.mockReturnValue({ query: {} });
   useRouter.mockReturnValue({
     push: mockRouterPush,
@@ -84,7 +94,7 @@ function renderComponent() {
     getFacilitySelectionRoute: jest.fn(),
   });
 
-  return render(PictureSignInPage, {
+  return render(inLayout ? PageInLayout : PictureSignInPage, {
     routes: [
       { name: 'PictureSignInPage', path: '/picture' },
       { name: 'SignInPage', path: '/signin' },
@@ -354,6 +364,28 @@ describe('PictureSignInPage', () => {
       });
     });
 
+    it('announces "wrong words" to screen readers instead of the visible "wrong pictures" text', async () => {
+      const user = createUser();
+      mockLogin.mockResolvedValue({ data: null, error: LoginErrors.INVALID_CREDENTIALS });
+      renderComponent();
+
+      await user.click(checkbox(bee()));
+      await user.click(checkbox(star()));
+      await user.click(checkbox(moon()));
+      await user.click(screen.getByTestId('submit-button'));
+
+      await waitFor(() => {
+        expect(screen.getByTestId('wrong-pictures-sr-message')).toHaveTextContent(
+          picturePasswordStrings.wrongWordsTryAgain$(),
+        );
+      });
+      expect(screen.getByTestId('wrong-pictures-sr-message')).toHaveClass('visuallyhidden');
+      expect(screen.getByTestId('wrong-pictures-visible-message')).toHaveAttribute(
+        'aria-hidden',
+        'true',
+      );
+    });
+
     it('shows a visible error notification after confirm login fails', async () => {
       mockLogin
         .mockResolvedValueOnce({ data: { full_name: MOCK_LEARNER_NAME }, error: null })
@@ -428,4 +460,6 @@ describe('PictureSignInPage', () => {
       ).not.toBeInTheDocument();
     });
   });
+
+  describeAuthPageTitle(() => renderComponent({ inLayout: true }), pictureSignInPageTitle$);
 });

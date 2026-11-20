@@ -1,14 +1,10 @@
 from rest_framework.permissions import BasePermission
 
+from kolibri.core.auth.models import Role
 from kolibri.core.auth.permissions.general import DenyAll
 from kolibri.core.device.models import device_permissions_fields
 from kolibri.core.device.utils import device_provisioned
 from kolibri.core.device.utils import valid_app_key_on_request
-
-
-class NotProvisionedCanPost(BasePermission):
-    def has_permission(self, request, view):
-        return not device_provisioned() and request.method == "POST"
 
 
 class NotProvisionedHasPermission(BasePermission):
@@ -38,9 +34,12 @@ class IsSuperuser(DenyAll):
         return self.has_permission(request, view)
 
 
-class IsNotAnonymous(DenyAll):
+class IsCoachOrAdmin(DenyAll):
     def has_permission(self, request, view):
-        return request.user.is_authenticated
+        return (
+            request.user.is_superuser
+            or Role.objects.filter(user_id=request.user.id).exists()
+        )
 
 
 class FromAppContextPermission(BasePermission):

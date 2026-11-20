@@ -17,7 +17,7 @@
       </UiAlert>
       <section>
         <h1>
-          {{ $tr('pageHeader') }}
+          {{ pageTitleStrings.pageHeader$() }}
         </h1>
         <p>
           {{ $tr('pageDescription') }}
@@ -229,7 +229,7 @@
             <div
               v-show="setLimitForAutodownload"
               class="left-margin limit-for-autodownload"
-              :class="$computedClass(limitForAutodownloadStyle)"
+              :class="{ 'window-is-small': windowIsSmall }"
               :disabled="isRemoteContent"
             >
               <KTextbox
@@ -248,13 +248,17 @@
               />
               <div
                 class="slider-section"
-                :class="$computedClass(sliderSectionStyle)"
+                :class="{ 'window-is-small': windowIsSmall }"
               >
                 <p class="slider-min-max">{{ $formatNumber(0) }}</p>
                 <input
                   id="slider"
                   v-model="limitForAutodownload"
-                  :class="$computedClass(sliderStyle)"
+                  :class="{
+                    'window-is-small': windowIsSmall,
+                    'not-enough-space': notEnoughFreeSpace,
+                  }"
+                  :style="{ '--slider-fill': sliderFill }"
                   :disabled="notEnoughFreeSpace || isRemoteContent"
                   type="range"
                   min="0"
@@ -382,11 +386,17 @@
   import pluginData from 'kolibri-plugin-data';
   import commonCoreStrings from 'kolibri/uiText/commonCoreStrings';
   import UiAlert from 'kolibri-design-system/lib/keen/UiAlert';
-  import { availableLanguages, currentLanguage, sortLanguages } from 'kolibri/utils/i18n';
+  import {
+    availableLanguages,
+    createTranslator,
+    currentLanguage,
+    sortLanguages,
+  } from 'kolibri/utils/i18n';
   import BottomAppBar from 'kolibri/components/BottomAppBar';
   import useKResponsiveWindow from 'kolibri-design-system/lib/composables/useKResponsiveWindow';
   import useUser from 'kolibri/composables/useUser';
   import useSnackbar from 'kolibri/composables/useSnackbar';
+  import usePageTitle from 'kolibri/composables/usePageTitle';
   import useFacilities from 'kolibri-common/composables/useFacilities';
   import { pageLoading } from 'kolibri-common/composables/usePageLoading';
   import commonDeviceStrings from '../commonDeviceStrings';
@@ -409,13 +419,15 @@
     ALLOW_GUEST_ACCESS: 'ALLOW_GUEST_ACCESS',
   });
 
+  export const pageTitleStrings = createTranslator('DeviceSettingsPage', {
+    pageHeader: {
+      message: 'Device settings',
+      context: 'Title of page where user can configure device settings.',
+    },
+  });
+
   export default {
     name: 'DeviceSettingsPage',
-    metaInfo() {
-      return {
-        title: this.$tr('pageHeader'),
-      };
-    },
     components: {
       DeviceAppBarPage,
       BottomAppBar,
@@ -434,6 +446,7 @@
       const dataPlugins = ref(null);
       const { snackbarIsVisible, createSnackbar } = useSnackbar();
       const { facilities } = useFacilities();
+      usePageTitle(pageTitleStrings.pageHeader$, { hasVisibleHeading: true });
       fetchPlugins.then(() => {
         dataPlugins.value = plugins.value.map(plugin => ({ ...plugin }));
       });
@@ -473,6 +486,7 @@
         createSnackbar,
         facilities,
         pageLoading,
+        pageTitleStrings,
       };
     },
     data() {
@@ -558,50 +572,11 @@
         });
         return this.readOnlyPaths >= 1;
       },
-      limitForAutodownloadStyle() {
-        const alignItems = this.windowIsSmall ? 'start' : 'center';
-        const flexDirection = this.windowIsSmall ? 'column' : 'row';
-        return {
-          alignItems,
-          flexDirection,
-        };
-      },
-      sliderSectionStyle() {
-        const paddingLeft = this.windowIsSmall ? '0px' : '20px';
-        return {
-          paddingLeft,
-        };
-      },
-      sliderStyle() {
-        const width = this.windowIsSmall ? '35vw' : '12vw';
+      sliderFill() {
         if (this.notEnoughFreeSpace) {
-          return {
-            background: `linear-gradient(to right, ${this.$themeTokens.primary} 0%, ${
-              this.$themeTokens.primary
-            }
-          ${((0 - 0) / (100 - 0)) * 100}%, ${this.$themeTokens.fineLine} ${
-              ((0 - 0) / (100 - 0)) * 100
-            }%, ${this.$themeTokens.fineLine} 100%)`,
-            '::-webkit-slider-thumb': {
-              background: this.$themeTokens.fineLine,
-            },
-            width,
-          };
-        } else {
-          return {
-            background: `linear-gradient(to right, ${this.$themeTokens.primary} 0%, ${
-              this.$themeTokens.primary
-            }
-          ${((this.limitForAutodownload - 0) / (this.freeSpace - 0)) * 100}%,
-          ${this.$themeTokens.fineLine} ${
-              ((this.limitForAutodownload - 0) / (this.freeSpace - 0)) * 100
-            }%, ${this.$themeTokens.fineLine} 100%)`,
-            '::-webkit-slider-thumb': {
-              background: this.$themeTokens.primary,
-            },
-            width,
-          };
+          return '0%';
         }
+        return `${(this.limitForAutodownload / this.freeSpace) * 100}%`;
       },
       canCheckMeteredConnection() {
         return pluginData.canCheckMeteredConnection;
@@ -991,10 +966,6 @@
         message: 'The changes you make here will affect this device only.',
         context: "Description on 'Device settings' page.",
       },
-      pageHeader: {
-        message: 'Device settings',
-        context: 'Title of page where user can configure device settings.',
-      },
       saveFailureNotification: {
         message: 'Settings have not been updated',
         context: 'Error message that displays if device settings are not saved correctly.',
@@ -1230,6 +1201,11 @@
     display: flex;
     flex-direction: row;
     align-items: center;
+
+    &.window-is-small {
+      flex-direction: column;
+      align-items: start;
+    }
   }
 
   input[type='range'] {
@@ -1237,7 +1213,18 @@
     height: 2px;
     margin-left: 10px;
     appearance: none;
+    background: linear-gradient(
+      to right,
+      var(--tokens-primary) 0%,
+      var(--tokens-primary) var(--slider-fill, 0%),
+      var(--tokens-fineLine) var(--slider-fill, 0%),
+      var(--tokens-fineLine) 100%
+    );
     outline: none;
+
+    &.window-is-small {
+      width: 35vw;
+    }
   }
 
   input[type='range']::-webkit-slider-thumb {
@@ -1245,7 +1232,12 @@
     height: 12px;
     appearance: none;
     cursor: pointer;
+    background-color: var(--tokens-primary);
     border-radius: 10px;
+  }
+
+  input[type='range'].not-enough-space::-webkit-slider-thumb {
+    background-color: var(--tokens-fineLine);
   }
 
   .download-limit-textbox {
@@ -1257,6 +1249,10 @@
     flex-direction: row;
     justify-content: space-between;
     padding-left: 20px;
+
+    &.window-is-small {
+      padding-left: 0;
+    }
   }
 
   .slider-min-max {

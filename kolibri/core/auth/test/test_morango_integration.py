@@ -10,11 +10,18 @@ through regular Django ORM calls, with `.using(<server_alias>)`.
 
 import datetime
 import os
+import shutil
+import threading
 import unittest
 import uuid
+from http.server import BaseHTTPRequestHandler
+from http.server import HTTPServer
+from unittest import mock
 
 from django.core.management import call_command
+from django.db import connection
 from django.db import connections
+from django.test import SimpleTestCase
 from django.test import TestCase
 from django.test import TransactionTestCase
 from django.utils import timezone
@@ -27,8 +34,8 @@ from morango.sync.controller import MorangoProfileController
 
 from kolibri.core.attendance.models import AttendanceSession
 from kolibri.core.auth.constants import role_kinds
-from kolibri.core.auth.management.utils import get_client_and_server_certs
 from kolibri.core.auth.utils.sync import find_soud_sync_session_for_resume
+from kolibri.core.auth.utils.sync import get_client_and_server_certs
 from kolibri.core.courses.models import CourseSession
 from kolibri.core.courses.models import CourseSessionAssignment
 from kolibri.core.courses.models import TestType
@@ -58,7 +65,10 @@ from . import sync_scenarios
 from .helpers import create_superuser
 from .helpers import DUMMY_PASSWORD
 from .helpers import provision_device
+from .sync_utils import _get_preseeded_home
+from .sync_utils import KolibriServer
 from .sync_utils import multiple_kolibri_servers
+from .sync_utils import ServerStartError
 
 
 class FacilityDatasetCertificateTestCase(TestCase):
@@ -197,6 +207,45 @@ class CrossDatasetSuperuserDeserializationTestCase(TransactionTestCase):
         self._assert_deserializes_cleanly(session.id)
 
 
+class _NotFoundHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_error(404)
+
+    def log_message(self, format, *args):
+        pass
+
+
+class KolibriServerTestCase(SimpleTestCase):
+    def test_main_port_differs_from_zip_content_port(self):
+        with mock.patch(
+            "kolibri.core.auth.test.sync_utils.get_free_tcp_port",
+            side_effect=[8001, 8001, 8002],
+        ):
+            server = KolibriServer(autostart=False)
+        self.addCleanup(shutil.rmtree, server.env["KOLIBRI_HOME"])
+        self.assertNotEqual(server.port, int(server.env["KOLIBRI_ZIP_CONTENT_PORT"]))
+
+    @unittest.skipIf(
+        not os.environ.get("INTEGRATION_TEST"),
+        "This test will only be run during integration testing.",
+    )
+    @unittest.skipIf(
+        connection.vendor != "sqlite", "The preseeded home is sqlite only."
+    )
+    def test_start_raises_when_main_server_cannot_bind(self):
+        server = KolibriServer(
+            autostart=False, seeded_kolibri_home=_get_preseeded_home({})
+        )
+        occupant = HTTPServer(("", 0), _NotFoundHandler)
+        self.addCleanup(occupant.server_close)
+        threading.Thread(target=occupant.serve_forever, daemon=True).start()
+        self.addCleanup(occupant.shutdown)
+        server.port = occupant.server_address[1]
+        self.addCleanup(server.kill)
+        with self.assertRaises(ServerStartError):
+            server.start()
+
+
 class MultipleServerTestCase(TestCase):
     """
     A test case to do special teardown handling to prevent errors from our additional databases.
@@ -266,29 +315,25 @@ class CertificateAuthenticationTestCase(MultipleServerTestCase):
         controller = MorangoProfileController(PROFILE_FACILITY_DATA)
         network_connection = controller.create_network_connection(server.baseurl)
 
-        client_cert, server_cert, username = get_client_and_server_certs(
+        client_cert, server_cert = get_client_and_server_certs(
             superuser_1.username,
             "superuser_1",
             facility_1.dataset_id,
             network_connection,
             facility_id=facility_1.id,
-            noninteractive=True,
         )
         self.assertIsNotNone(client_cert)
         self.assertIsNotNone(server_cert)
-        self.assertIsNotNone(username)
 
-        client_cert, server_cert, username = get_client_and_server_certs(
+        client_cert, server_cert = get_client_and_server_certs(
             superuser_2.username,
             "superuser_2",
             facility_2.dataset_id,
             network_connection,
             facility_id=facility_2.id,
-            noninteractive=True,
         )
         self.assertIsNotNone(client_cert)
         self.assertIsNotNone(server_cert)
-        self.assertIsNotNone(username)
 
     @multiple_kolibri_servers(1)
     def test_learner_passwordless_authentication(self, servers):
@@ -317,18 +362,16 @@ class CertificateAuthenticationTestCase(MultipleServerTestCase):
 
         # if it's not working, this will throw:
         #   requests.exceptions.HTTPError: 401 Client Error: Unauthorized for url
-        client_cert, server_cert, username = get_client_and_server_certs(
+        client_cert, server_cert = get_client_and_server_certs(
             learner.username,
             "NOT_THE_DUMMY_PASSWORD",
             facility.dataset_id,
             network_connection,
             user_id=learner.pk,
             facility_id=facility.id,
-            noninteractive=True,
         )
         self.assertIsNotNone(client_cert)
         self.assertIsNotNone(server_cert)
-        self.assertIsNotNone(username)
 
 
 @unittest.skipIf(

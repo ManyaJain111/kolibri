@@ -54,7 +54,7 @@
       <KDateRange
         v-if="showDateRangePicker"
         :lastAllowedDate="today"
-        :submitText="applyLabel$()"
+        :submitText="coreString('confirmAction')"
         :cancelText="coreString('cancelAction')"
         :title="customDateRangeTitle$()"
         :description="customDateRangeDescription$()"
@@ -70,7 +70,7 @@
         :headers="tableHeaders"
         :rows="tableRows"
         :caption="attendanceHistoryTitle$()"
-        :emptyMessage="noSessionsFoundMessage$()"
+        :emptyMessage="coreString('noResultsLabel')"
         :dataLoading="attendanceLoading"
         :stickyColumns="['first']"
       >
@@ -105,6 +105,7 @@
   import { ref, computed, watch, onMounted } from 'vue';
   import { useRoute, useRouter } from 'vue-router/composables';
   import useSnackbar from 'kolibri/composables/useSnackbar';
+  import usePageTitle from 'kolibri/composables/usePageTitle';
   import { coreString } from 'kolibri/uiText/commonCoreStrings';
   import { attendanceStrings } from 'kolibri-common/strings/attendanceStrings';
   import AttendanceSessionResource from 'kolibri-common/apiResources/AttendanceSessionResource';
@@ -146,6 +147,7 @@
       const router = useRouter();
       const { createSnackbar } = useSnackbar();
       const { classId, className } = useCoreCoach();
+      usePageTitle(className, { hasVisibleHeading: true });
 
       const { attendanceLoading, sessions, totalPages, sessionCount, fetchSessions } =
         useAttendance();
@@ -154,14 +156,11 @@
 
       const {
         markAttendanceAction$,
-        noSessionsFoundMessage$,
         dateLabel$,
         $formatDate,
         attendanceHistoryTitle$,
         backToClassLabel$,
         dateRangeLabel$,
-        pastDays$,
-        allTime$,
         customLabel$,
         customDateRangeTitle$,
         customDateRangeDescription$,
@@ -169,7 +168,6 @@
         endDateLabel$,
         previousMonthLabel$,
         nextMonthLabel$,
-        applyLabel$,
         presentColumnHeader$,
         absentColumnHeader$,
       } = attendanceStrings;
@@ -191,10 +189,13 @@
       });
 
       const baseOptions = [
-        { label: pastDays$({ count: 7 }), value: DateRangeFilters.LAST_7_DAYS },
-        { label: pastDays$({ count: 30 }), value: DateRangeFilters.LAST_30_DAYS },
-        { label: pastDays$({ count: 365 }), value: DateRangeFilters.LAST_365_DAYS },
-        { label: allTime$(), value: DateRangeFilters.ALL_TIME },
+        { label: coreString('lastNDaysLabel', { num: 7 }), value: DateRangeFilters.LAST_7_DAYS },
+        { label: coreString('lastNDaysLabel', { num: 30 }), value: DateRangeFilters.LAST_30_DAYS },
+        {
+          label: coreString('lastNDaysLabel', { num: 365 }),
+          value: DateRangeFilters.LAST_365_DAYS,
+        },
+        { label: coreString('allTimeLabel'), value: DateRangeFilters.ALL_TIME },
         { label: customLabel$(), value: DateRangeFilters.CUSTOM },
       ];
 
@@ -424,7 +425,6 @@
         attendanceHistoryTitle$,
         backToClassLabel$,
         markAttendanceAction$,
-        noSessionsFoundMessage$,
         dateRangeLabel$,
         customDateRangeTitle$,
         customDateRangeDescription$,
@@ -432,7 +432,6 @@
         endDateLabel$,
         previousMonthLabel$,
         nextMonthLabel$,
-        applyLabel$,
         coreString,
         exportCSV,
       };

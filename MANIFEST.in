@@ -3,8 +3,6 @@ include CONTRIBUTING.md
 include CHANGELOG.md
 include LICENSE
 include README.md
-# Read out of the sdist by an external installer repo — see `writeversion` in the Makefile.
-include kolibri/VERSION
 recursive-include kolibri/locale *.mo
 recursive-include kolibri/locale *.json
 recursive-include kolibri/locale *.po
@@ -39,6 +37,7 @@ prune kolibri/core/frontend
 prune kolibri/core/node_modules
 prune kolibri/plugins/*/frontend
 prune kolibri/plugins/*/h5p_build
+prune kolibri/plugins/*/bloom_build
 prune kolibri/plugins/*/node_modules
 exclude kolibri/*/buildConfig.js
 exclude kolibri/plugins/*/buildConfig.js

@@ -31,10 +31,22 @@ jobs:
   deb:
     name: Build DEB file
     needs: whl
-    uses: learningequality/kolibri-installer-debian/.github/workflows/build_deb.yml@v0.18.0
+    uses: ./.github/workflows/platform-debian-build_deb.yml
     with:
       tar-file-name: ${{ needs.whl.outputs.tar-file-name }}
-      ref: v0.16.1
+  deb_source:
+    name: Build DEB source package
+    needs: whl
+    uses: ./.github/workflows/platform-debian-build_deb.yml
+    with:
+      tar-file-name: ${{ needs.whl.outputs.tar-file-name }}
+      source-package: true
+  deb_install_test:
+    name: DEB install tests
+    needs: deb
+    uses: ./.github/workflows/platform-debian-install_test.yml
+    with:
+      deb-file-name: ${{ needs.deb.outputs.deb-file-name }}
   server_deb:
     name: Build kolibri-server DEB file
     uses: ./.github/workflows/platform-debian-server-build_deb.yml
@@ -136,7 +148,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7.0.1
       - name: Set up JDK 21
-        uses: actions/setup-java@v6.0.1
+        uses: actions/setup-java@v6.1.0
         with:
           distribution: 'temurin'
           java-version: '21'
@@ -184,7 +196,8 @@ jobs:
           script: |
             # Caps are ~30x the observed normal (6s install, under 1s for the rest);
             # 3 attempts each still fit the job's cap after a 10 minute emulator boot.
-            platforms/android/scripts/adb-retry.sh 180 3 install -r platforms/android/dist/*.apk
+            # API 24's streamed install loses a byte over a pty and hangs.
+            platforms/android/scripts/adb-retry.sh 180 3 install -r --no-streaming platforms/android/dist/*.apk
             platforms/android/scripts/adb-retry.sh 60 3 shell am set-debug-app --persistent org.learningequality.Kolibri
             platforms/android/scripts/adb-retry.sh 120 3 wait-for-device
             timeout 300 sh -c 'until adb shell pm path org.learningequality.Kolibri >/dev/null 2>&1; do sleep 1; done'

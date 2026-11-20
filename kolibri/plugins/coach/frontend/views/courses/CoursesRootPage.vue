@@ -56,6 +56,7 @@
       </div>
       <div v-if="showCoursesTable">
         <KTable
+          class="courses-table"
           :dataLoading="coursesAreLoading"
           :emptyMessage="hasActiveFilters ? coreString('noResultsLabel') : noCoursesAssigned$()"
           :caption="tableCaption"
@@ -82,13 +83,15 @@
           </template>
           <template #cell="{ content, colIndex }">
             <template v-if="colIndex === 0">
-              <div class="course-title">
+              <KLabeledIcon
+                icon="course"
+                :color="$themeTokens.primary"
+              >
                 <KRouterLink
                   :to="courseSummaryLink(content)"
                   :text="content.title"
-                  icon="course"
                 />
-              </div>
+              </KLabeledIcon>
             </template>
             <template v-else-if="colIndex === 1">
               <KLabeledIcon nowrap>
@@ -104,6 +107,14 @@
                 <template v-else-if="content.unit_phase === UnitPhase.POST_TEST_PENDING">
                   {{ unitInProgressLabel$({ num: content.active_unit_number }) }}
                 </template>
+                <template
+                  v-else-if="
+                    content.unit_phase === UnitPhase.PRE_TEST_PENDING &&
+                      content.active_unit_number > 1
+                  "
+                >
+                  {{ unitNotStartedLabel$({ num: content.active_unit_number }) }}
+                </template>
                 <template v-else-if="content.unit_phase === UnitPhase.COMPLETE">
                   {{ coreString('completedLabel') }}
                 </template>
@@ -113,19 +124,20 @@
               </KLabeledIcon>
             </template>
             <template v-else-if="colIndex === 2">
-              <Recipients
-                :groupNames="getRecipientNamesForCourseSession(content)"
-                :hasAssignments="courseHasRecipients(content)"
-              />
-            </template>
-            <template v-else-if="colIndex === 3">
               <StatusSummary
                 v-if="content.test_learner_progress"
+                data-testid="learner-progress-tally"
                 :tally="content.test_learner_progress"
                 :verbose="true"
                 :showNeedsHelp="false"
               />
               <KEmptyPlaceholder v-else />
+            </template>
+            <template v-else-if="colIndex === 3">
+              <Recipients
+                :groupNames="getRecipientNamesForCourseSession(content)"
+                :hasAssignments="courseHasRecipients(content)"
+              />
             </template>
             <div
               v-else-if="colIndex === 4"
@@ -226,6 +238,7 @@
   import useKShow from 'kolibri-design-system/lib/composables/useKShow';
   import useKResponsiveWindow from 'kolibri-design-system/lib/composables/useKResponsiveWindow';
   import useSnackbar from 'kolibri/composables/useSnackbar';
+  import usePageTitle from 'kolibri/composables/usePageTitle';
   import { handleApiError } from 'kolibri/utils/appError';
   import { useRoute, useRouter } from 'vue-router/composables';
   import { computed, getCurrentInstance, onMounted, ref, watch, nextTick } from 'vue';
@@ -241,6 +254,7 @@
   import { coachStrings } from '../common/commonCoachStrings';
   import emptyPlusCloudSvg from '../../images/empty_plus_cloud.svg';
   import useClassSummary from '../../composables/useClassSummary';
+  import { provideSidePanelTitle } from '../../composables/useSidePanelTitle';
   import Recipients from '../common/Recipients.vue';
   import StatusSummary from '../common/status/StatusSummary.vue';
   import CoachStatusIcon from '../common/status/CoachStatusIcon.vue';
@@ -291,9 +305,13 @@
         unitInProgressLabel$,
         preTestRunningLabel$,
         postTestRunningLabel$,
+        unitNotStartedLabel$,
       } = coursesStrings;
       const { entireClassLabel$ } = coachStrings;
-      const { getRecipientNamesForCourseSession } = useClassSummary();
+      const { getRecipientNamesForCourseSession, className } = useClassSummary();
+      const title = () => [coursesLabel$(), className.value];
+      usePageTitle(title, { hasVisibleHeading: true });
+      provideSidePanelTitle(title);
       const { show } = useKShow();
       const { windowIsSmall } = useKResponsiveWindow();
       const {
@@ -542,8 +560,10 @@
         unitInProgressLabel$,
         preTestRunningLabel$,
         postTestRunningLabel$,
+        unitNotStartedLabel$,
         getRecipientNamesForCourseSession,
         courseHasRecipients,
+        className,
       };
     },
     data() {
@@ -554,9 +574,6 @@
       };
     },
     computed: {
-      className() {
-        return this.$store.state.classSummary.name;
-      },
       tableCaption() {
         return this.allCoursesForClass$({ className: this.className });
       },
@@ -571,8 +588,14 @@
           {
             label: this.coreString('progressLabel'),
             dataType: 'undefined',
-            minWidth: '100px',
+            minWidth: '200px',
             columnId: 'status',
+          },
+          {
+            label: this.learnerProgressLabel$(),
+            dataType: 'undefined',
+            minWidth: '200px',
+            columnId: 'learnerProgress',
           },
           {
             label: this.coachString('recipientsLabel'),
@@ -581,15 +604,9 @@
             columnId: 'recipients',
           },
           {
-            label: this.learnerProgressLabel$(),
-            dataType: 'undefined',
-            minWidth: '100px',
-            columnId: 'learnerProgress',
-          },
-          {
             label: this.coachString('lessonVisibleLabel'),
             dataType: 'undefined',
-            minWidth: '200px',
+            minWidth: '80px',
             columnId: 'visible',
           },
           {
@@ -604,8 +621,8 @@
         return this.sortedCourses.map(course => [
           course, // title
           course, // status
-          course, // recipients
           course, // learner progress
+          course, // recipients
           course, // visible toggle
           course, // options menu
         ]);
@@ -787,10 +804,8 @@
     font-size: 12px;
   }
 
-  .course-title {
-    display: flex;
-    gap: 8px;
-    align-items: center;
+  .courses-table {
+    font-size: 14px;
   }
 
   .empty-courses {
