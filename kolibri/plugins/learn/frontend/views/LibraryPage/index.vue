@@ -21,7 +21,15 @@
       :deviceId="deviceId"
       :route="back"
     >
-      <main class="main-grid">
+      <main
+        class="main-grid"
+        :aria-labelledby="displayingSearchResults ? null : 'library-channels-heading'"
+      >
+        <!--
+          The search bar precedes the h1 in the DOM. Manually overriding
+          means we don't accidentally bypass the search experience entirely
+          for screen reader users.
+        -->
         <!-- Search header: search bar + filter pills grouped together -->
         <div
           class="search-header"
@@ -32,6 +40,7 @@
         >
           <LibrarySearchBar
             v-if="!isLocalLibraryEmpty || deviceId"
+            ref="searchBar"
             data-testid="library-search-bar"
           />
 
@@ -39,6 +48,7 @@
             v-if="!rootNodesLoading && (!isLocalLibraryEmpty || deviceId)"
             data-testid="horizontal-filter-pills"
             @openFilters="showFilterModal = true"
+            @focusLost="focusSearchBar"
           />
         </div>
 
@@ -60,27 +70,20 @@
         >
           <div>
             <h1
-              v-if="!isLocalLibraryEmpty"
+              v-if="!isLocalLibraryEmpty || hasNetworkLibraries"
+              id="library-channels-heading"
               class="channels-label"
             >
               {{ channelsLabel }}
             </h1>
-            <div
-              v-else-if="
-                isLocalLibraryEmpty && isNetworkLibraryAvailable && !isLoadingNetworkLibraries
-              "
+            <p
+              v-if="isLocalLibraryEmpty && hasNetworkLibraries"
+              data-testid="nothing-in-lib-label"
+              class="nothing-in-lib-label"
             >
-              <h1 class="channels-label">
-                {{ channelsLabel }}
-              </h1>
-              <p
-                data-testid="nothing-in-lib-label"
-                class="nothing-in-lib-label"
-              >
-                {{ coreString('nothingInLibraryLearner') }}
-              </p>
-            </div>
-            <NoResourcePage v-else />
+              {{ coreString('nothingInLibraryLearner') }}
+            </p>
+            <NoResourcePage v-else-if="isLocalLibraryEmpty" />
           </div>
 
           <ChannelCardGroupGrid
@@ -109,19 +112,23 @@
           />
         </div>
 
-        <SearchResultsGrid
-          v-else-if="displayingSearchResults"
-          data-testid="search-results"
-          :allowDownloads="allowDownloads"
-          :results="results"
-          :moreLoading="moreLoading"
-          :searchMore="searchMore"
-          :currentCardViewStyle="currentCardViewStyle"
-          :searchLoading="searchLoading"
-          :more="more"
-          @setCardStyle="style => (currentCardViewStyle = style)"
-          @setSidePanelMetadataContent="content => (metadataSidePanelContent = content)"
-        />
+        <div v-else-if="displayingSearchResults">
+          <h1 class="visuallyhidden">
+            {{ learnString('learnLabel') }}
+          </h1>
+          <SearchResultsGrid
+            data-testid="search-results"
+            :allowDownloads="allowDownloads"
+            :results="results"
+            :moreLoading="moreLoading"
+            :searchMore="searchMore"
+            :currentCardViewStyle="currentCardViewStyle"
+            :searchLoading="searchLoading"
+            :more="more"
+            @setCardStyle="style => (currentCardViewStyle = style)"
+            @setSidePanelMetadataContent="content => (metadataSidePanelContent = content)"
+          />
+        </div>
       </main>
 
       <!-- All filters side panel -->
@@ -148,14 +155,6 @@
             v-for="activity in metadataSidePanelContent.learning_activities"
             :key="activity"
             class="side-panel-chips"
-            :class="
-              $computedClass({
-                '::after': {
-                  content: '',
-                  flex: 'auto',
-                },
-              })
-            "
           >
             <LearningActivityChip
               class="chip"
@@ -186,12 +185,14 @@
 
   import { get, set, useSessionStorage } from '@vueuse/core';
 
-  import { getCurrentInstance, ref, watch } from 'vue';
+  import { ref, watch } from 'vue';
+  import { useRouter } from 'vue-router/composables';
   import useKResponsiveWindow from 'kolibri-design-system/lib/composables/useKResponsiveWindow';
   import pluginData from 'kolibri-plugin-data';
   import commonCoreStrings from 'kolibri/uiText/commonCoreStrings';
   import useUser from 'kolibri/composables/useUser';
   import useNav from 'kolibri/composables/useNav';
+  import usePageTitle from 'kolibri/composables/usePageTitle';
   import { handleApiError, clearError } from 'kolibri/utils/appError';
   import samePageCheckGenerator from 'kolibri-common/utils/samePageCheckGenerator';
   import ContentNodeResource from 'kolibri-common/apiResources/ContentNodeResource';
@@ -205,6 +206,7 @@
   import useTour from 'kolibri/composables/useTour';
   import { pageLoading } from 'kolibri-common/composables/usePageLoading';
   import { PICTURE_PASSWORD_ASSIGNED_MODAL_PENDING } from 'kolibri-common/constants/Auth';
+  import store from '../../store';
   import SearchFiltersSidePanel from '../SearchFiltersSidePanel';
   import { KolibriStudioId, PageNames } from '../../constants';
   import useCardViewStyle from '../../composables/useCardViewStyle';
@@ -219,7 +221,7 @@
   import useSearch from '../../composables/useSearch';
   import useLearnerResources from '../../composables/useLearnerResources';
   import BrowseResourceMetadata from '../BrowseResourceMetadata';
-  import commonLearnStrings from '../commonLearnStrings';
+  import commonLearnStrings, { learnStrings } from '../commonLearnStrings';
   import ChannelCardGroupGrid from '../ChannelCardGroupGrid';
   import SearchResultsGrid from '../SearchResultsGrid';
   import LearnAppBarPage from '../LearnAppBarPage';
@@ -235,11 +237,6 @@
 
   export default {
     name: 'LibraryPage',
-    metaInfo() {
-      return {
-        title: this.learnString('learnLabel'),
-      };
-    },
     components: {
       BrowseResourceMetadata,
       ChannelCardGroupGrid,
@@ -259,9 +256,8 @@
     },
     mixins: [commonLearnStrings, commonCoreStrings],
     setup(props) {
-      const currentInstance = getCurrentInstance().proxy;
-      const store = currentInstance.$store;
-      const router = currentInstance.$router;
+      usePageTitle(learnStrings.learnLabel$, { hasVisibleHeading: true });
+      const router = useRouter();
       const { tourActive, isTourActive, startTour, endTour, resumeTour } = useTour();
       const { isUserLoggedIn, hasRole, currentUserId } = useUser();
       const picturePasswordPending = useSessionStorage(
@@ -280,7 +276,7 @@
         search,
         searchMore,
         currentRoute,
-      } = useSearch();
+      } = useSearch(null, { announceResults: true });
       search();
       const { fetchResumableContentNodes } = useLearnerResources();
 
@@ -441,6 +437,9 @@
       };
     },
     computed: {
+      hasNetworkLibraries() {
+        return this.isNetworkLibraryAvailable && !this.isLoadingNetworkLibraries;
+      },
       ...mapState({
         welcomeModalVisibleState: 'welcomeModalVisible',
       }),
@@ -540,6 +539,11 @@
       },
       findFirstEl() {
         this.$refs.resourcePanel.focusFirstEl();
+      },
+      focusSearchBar() {
+        if (this.$refs.searchBar) {
+          this.$refs.searchBar.focus();
+        }
       },
       injecttr(...args) {
         return this.$tr(...args);
@@ -643,6 +647,11 @@
     justify-content: flex-start;
     margin-top: 8px;
     margin-left: -8px;
+  }
+
+  .side-panel-chips::after {
+    flex: auto;
+    content: '';
   }
 
   .chip {

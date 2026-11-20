@@ -41,6 +41,7 @@
         itemData,
         itemId,
         answerState,
+        showCorrectAnswer,
         userId,
         interactive,
         lang,
@@ -261,11 +262,19 @@
 
       provide(
         'answerState',
-        computed(() => answerState.value || {}),
+        computed(() => {
+          const state = answerState.value || {};
+          // Hints taken before a first check on 0.20 alphas saved responses flat.
+          return 'responses' in state ? state : { ...state, responses: state };
+        }),
       );
       provide(
         'interactive',
         computed(() => interactive.value),
+      );
+      provide(
+        'showCorrectAnswer',
+        computed(() => showCorrectAnswer.value),
       );
 
       provide('qtiPackage', qtiPackage);

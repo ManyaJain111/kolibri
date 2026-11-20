@@ -8,7 +8,6 @@ import webbrowser
 from importlib.resources import files
 
 import wx
-from django.utils.translation.trans_real import to_language
 from wx import html2
 
 from kolibri.utils.conf import LOG_ROOT
@@ -19,7 +18,7 @@ from kolibri_app.constants import MAC
 from kolibri_app.constants import TRAY_ICON_ICO
 from kolibri_app.constants import WINDOWS
 from kolibri_app.i18n import _
-from kolibri_app.i18n import locale_info
+from kolibri_app.i18n import language
 from kolibri_app.logger import logging
 
 if WINDOWS:
@@ -77,7 +76,7 @@ def get_loader_html():
     """
     Finds the correct localized loading.html file and returns its content.
     """
-    lang_id = to_language(locale_info["language"])
+    lang_id = language
     asset_files = files("kolibri_app") / "assets"
     loader_page = asset_files / lang_id / LOADER_PAGE
     if not loader_page.is_file():
@@ -448,7 +447,12 @@ class KolibriView(object):
         dlg.Destroy()
 
     def on_open_in_browser(self, event):
-        webbrowser.open(self.get_url())
+        url = self.get_url()
+        # The loading screen is about:blank, which no browser is registered for.
+        if not url.startswith("http"):
+            url = self.app.kolibri_url
+        if url:
+            webbrowser.open(url)
 
     def on_open_kolibri_home(self, event):
         _open_in_file_manager(os.environ["KOLIBRI_HOME"])

@@ -1,6 +1,6 @@
 <script>
 
-  import { computed, h, inject, onUnmounted } from 'vue';
+  import { computed, h, inject, onUnmounted, ref } from 'vue';
   import { StringProp, QTIIdentifierProp } from '../../utils/props';
 
   export default {
@@ -11,6 +11,7 @@
       const answerState = inject('answerState');
       const responses = inject('responses');
       const interactive = inject('interactive');
+      const showCorrectAnswer = inject('showCorrectAnswer', ref(false));
       const handlers = inject('handlers');
 
       const itemData = computed(() => perseusItems.value[props.dataPerseusPath] || null);
@@ -19,7 +20,7 @@
       // so this seeds from the viewer's own answer state, not from the record
       // graded into below.
       const seedAnswerState = computed(
-        () => answerState.value[props.responseIdentifier]?.answerState || {},
+        () => answerState.value.responses?.[props.responseIdentifier]?.answerState || {},
       );
 
       let perseusViewer = null;
@@ -75,6 +76,7 @@
             preset: 'exercise',
             itemData: itemData.value,
             interactive: interactive.value,
+            showCorrectAnswer: showCorrectAnswer.value,
             answerState: seedAnswerState.value,
           },
           on: {

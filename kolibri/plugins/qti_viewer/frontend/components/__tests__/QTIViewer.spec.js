@@ -1,11 +1,22 @@
 import { render, screen } from '@testing-library/vue';
-import { nextTick } from 'vue';
+import { nextTick, ref } from 'vue';
 // eslint-disable-next-line import-x/named
 import useContentViewer, { useContentViewerMock } from 'kolibri/composables/useContentViewer';
 import items from '../__fixtures__/items';
 import QTIViewer from '../QTIViewer.vue';
+import {
+  correctResponse,
+  defaultValue,
+  itemXml,
+  outcomeDecl,
+  responseDecl,
+} from '../../utils/qti/__tests__/qtiXmlHelpers.js';
 
 jest.mock('kolibri/composables/useContentViewer');
+
+// MathML fixtures take SafeHTML's MathJax path in jsdom, which has no layout;
+// its font URL needs plugin URL data that tests lack.
+jest.mock('kolibri/urls');
 
 // Drive the integration tests through the shipped sandbox fixtures, the same way
 // the other QTI-focused integration tests do. `kolibri-hint-multi` carries three
@@ -120,5 +131,101 @@ describe('QTIViewer hints', () => {
 
     expect(registeredApi.totalHints.value).toBe(0);
     expect(screen.queryByRole('list')).not.toBeInTheDocument();
+  });
+});
+
+describe('QTIViewer answer state', () => {
+  const ITEM_XML = itemXml(
+    [responseDecl('RESPONSE', 'string')],
+    '<qti-item-body><p>Enter</p></qti-item-body>',
+  );
+
+  it('restores responses saved under answerState.responses', async () => {
+    mockViewer(ITEM_XML, { answerState: { responses: { RESPONSE: 'a' } } });
+    render(Harness);
+    await nextTick();
+
+    expect(registeredApi.checkAnswer().answerState.responses.RESPONSE).toBe('a');
+  });
+
+  it('restores responses saved flat by a hint taken on 0.20 alphas', async () => {
+    mockViewer(ITEM_XML, { answerState: { RESPONSE: 'a', QTI_CONTEXT: {} } });
+    render(Harness);
+    await nextTick();
+
+    expect(registeredApi.checkAnswer().answerState.responses.RESPONSE).toBe('a');
+  });
+});
+
+describe('QTIViewer correct answer', () => {
+  const ITEM_XML = itemXml(
+    [
+      responseDecl('RESPONSE', 'string', 'single', correctResponse('right')),
+      responseDecl('FREE', 'string', 'single', defaultValue('blank')),
+      responseDecl('OTHER', 'string', 'single', correctResponse('other')),
+      outcomeDecl('SCORE', 'float'),
+    ],
+    `<qti-item-body><p>Enter</p></qti-item-body>
+    <qti-response-processing>
+      <qti-response-condition>
+        <qti-response-if>
+          <qti-match>
+            <qti-variable identifier="RESPONSE"/>
+            <qti-correct identifier="RESPONSE"/>
+          </qti-match>
+          <qti-set-outcome-value identifier="SCORE">
+            <qti-base-value base-type="float">1</qti-base-value>
+          </qti-set-outcome-value>
+        </qti-response-if>
+      </qti-response-condition>
+    </qti-response-processing>`,
+  );
+
+  async function renderViewer(overrides) {
+    mockViewer(ITEM_XML, overrides);
+    render(Harness);
+    await nextTick();
+    return registeredApi.checkAnswer();
+  }
+
+  it('fills responses with their correct responses when nothing is saved', async () => {
+    const { answerState } = await renderViewer({ showCorrectAnswer: true });
+
+    expect(answerState.responses.RESPONSE).toBe('right');
+    expect(answerState.outcomes.SCORE).toBe(1);
+  });
+
+  it('leaves a response without a correct response at its default', async () => {
+    const { answerState } = await renderViewer({ showCorrectAnswer: true });
+
+    expect(answerState.responses.FREE).toBe('blank');
+  });
+
+  it('keeps saved responses over correct responses', async () => {
+    const { answerState } = await renderViewer({
+      showCorrectAnswer: true,
+      answerState: { responses: { RESPONSE: 'wrong' } },
+    });
+
+    expect(answerState.responses.RESPONSE).toBe('wrong');
+  });
+
+  it('leaves unsaved responses empty when any response is saved', async () => {
+    const { answerState } = await renderViewer({
+      showCorrectAnswer: true,
+      answerState: { responses: { RESPONSE: 'wrong' } },
+    });
+
+    expect(answerState.responses.OTHER).toBeNull();
+  });
+
+  it('returns responses to their defaults when correct answers are hidden', async () => {
+    const showCorrectAnswer = ref(true);
+    await renderViewer({ showCorrectAnswer });
+
+    showCorrectAnswer.value = false;
+    await nextTick();
+
+    expect(registeredApi.checkAnswer().answerState.responses.RESPONSE).toBeNull();
   });
 });

@@ -6,7 +6,6 @@
   >
     <button
       class="tree-item"
-      :class="$computedClass({ ':focus': $coreOutline })"
       :disabled="disabled"
       @click="$emit('click')"
     >
@@ -48,7 +47,7 @@
 
 <script>
 
-  import { themePalette, themeTokens } from 'kolibri-design-system/lib/styles/theme';
+  import { themePalette } from 'kolibri-design-system/lib/styles/theme';
   import { currentLanguage, isRtl } from 'kolibri/utils/i18n';
   import { computed } from 'vue';
 
@@ -56,7 +55,6 @@
     name: 'TreeItem',
     setup(props) {
       const $themePalette = themePalette();
-      const $themeTokens = themeTokens();
       const selectedBgColor = `${$themePalette.blue.v_100}60`; // 60 to give it some opacity
 
       const isRtlValue = isRtl(currentLanguage);
@@ -74,7 +72,7 @@
 
       const treeItemWrapperStyle = computed(() => {
         return {
-          borderBottom: `1px solid ${$themeTokens.fineLine}`,
+          borderBottom: '1px solid var(--tokens-fineLine)',
           ...selectedStyles.value,
         };
       });

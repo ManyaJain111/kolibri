@@ -34,15 +34,19 @@ Do not create a new component without first searching for an existing solution:
 Use existing components (e.g., `KTable` for tabular data, `KCircularLoader` for loading states). If one does 80% of what you need, wrap it — do not rewrite.
 
 ### ⚠️ Use Theme Tokens, Not Hard-Coded Colors
-Never use raw color values. Access theme colors via `$themeTokens` and `$themePalette`:
+Never use raw color values. Write theme colors as CSS variables in `<style>` blocks, including pseudo-classes:
 ```vue
-<template>
-  <div :style="{ color: $themeTokens.text, backgroundColor: $themeTokens.surface }">
-    <span :style="{ color: $themeTokens.annotation }">secondary text</span>
-  </div>
-</template>
+<style lang="scss" scoped>
+  .card {
+    color: var(--tokens-text);
+    background-color: var(--tokens-surface);
+  }
+  .card:hover {
+    background-color: var(--palette-grey-v100);
+  }
+</style>
 ```
-For computed dynamic styles, use `$computedClass`. See `docs/frontend_architecture/core.rst`.
+For other dynamic values, such as props, use `v-bind()` in the `<style>` block. Do not use `$computedClass` (deprecated in KDS). Use `$themeTokens` / `$themePalette` only where JavaScript needs the value itself. See `docs/frontend_architecture/core.rst`.
 
 ### ⚠️ Style Blocks, Not Inline — RTL Depends On It
 Non-dynamic styles go in `<style>` blocks. RTLCSS auto-flips directional properties (`padding-left` → `padding-right`) in style blocks but **cannot flip inline styles**. Dynamic directional styles must check `isRtl`. → `docs/i18n.rst`
@@ -101,11 +105,13 @@ See `docs/backend_architecture/api_patterns.rst`.
   // describe, it, expect are Jest globals — do NOT import them
   describe('MyComponent', () => {
     it('renders', () => {
-      render(MyComponent, { props: { title: 'Hello' } });
-      expect(screen.getByText('Hello')).toBeTruthy();
+      const TITLE = 'Hello';
+      render(MyComponent, { props: { title: TITLE } });
+      expect(screen.getByRole('heading', { name: TITLE })).toBeInTheDocument();
     });
   });
   ```
+- **Assertions:** Find elements by role + `name`, `within()` around a role query, or, when no role fits, test id + `toHaveTextContent`. Do NOT assert that a `*ByText` match exists, even inside `within()`; pair every negated `queryByText` with a test where the same query matches — the one place a `*ByText` match may be asserted. → "Assert on specific elements, not text presence" in `docs/frontend_architecture/unit_testing.rst`
 - **TDD:** Write a failing test first, then make it pass. This is especially important for bug fixes — always write a test that reproduces the bug before fixing it.
 
 ### ⚠️ Pre-commit Auto-fixes Files

@@ -2,6 +2,7 @@ import logging
 import random
 from itertools import permutations
 
+from django.db import transaction
 from django.db.models.functions import Coalesce
 from django.db.utils import IntegrityError
 
@@ -115,14 +116,38 @@ def get_assigned_sequences(facility):
     """
     Return the set of picture_password values already assigned to
     learners in the facility. Coaches and admins are excluded.
+
+    Soft-deleted learners are included: their sequence keeps occupying the
+    (dataset, picture_password) constraint until they are hard-deleted.
     """
     return set(
-        FacilityUser.objects.filter(
+        FacilityUser.all_objects.filter(
             facility=facility,
             roles__isnull=True,
             picture_password__isnull=False,
         ).values_list("picture_password", flat=True)
     )
+
+
+def _reclaim_sequence_from_deleted_learner(facility):
+    holder = (
+        FacilityUser.all_objects.filter(
+            facility=facility,
+            roles__isnull=True,
+            picture_password__isnull=False,
+            date_deleted__isnull=False,
+        )
+        .order_by("date_deleted", "id")
+        .first()
+    )
+    if holder is None:
+        raise NoAvailableSequences(
+            "All picture password sequences have been assigned for this facility."
+        )
+    sequence = holder.picture_password
+    holder.picture_password = None
+    holder.save(update_fields=["picture_password"])
+    return sequence
 
 
 def get_available_sequence(facility):
@@ -144,25 +169,46 @@ def assign_picture_password(user, facility):
     """
     Assign a unique picture password sequence to the user.
 
+    When no sequence is free, takes back the one held by the learner deleted
+    longest ago, writing that learner's row as well as this user's.
+
     Handles IntegrityError (race condition where another request assigned
     the same sequence between our read and write) by retrying once.
 
     Raises:
-        NoAvailableSequences: if no remaining sequences are available for facility.
+        NoAvailableSequences: if no sequence is free and there is no
+            soft-deleted learner to take one from, or if the pool has filled
+            by the time the retry looks.
         SequenceAlreadyAssigned: if we hit IntegrityError twice during assignment.
     """
-    sequence = get_available_sequence(facility)
+    try:
+        sequence = get_available_sequence(facility)
+    except NoAvailableSequences:
+        sequence = _reclaim_sequence_from_deleted_learner(facility)
 
     try:
         user.picture_password = sequence
-        user.save(update_fields=["picture_password"])
+        with transaction.atomic():
+            user.save(update_fields=["picture_password"])
     except IntegrityError:
         logger.warning("Picture password collision for user %s, retrying.", user.id)
         sequence = get_available_sequence(facility)
         user.picture_password = sequence
         try:
-            user.save(update_fields=["picture_password"])
+            with transaction.atomic():
+                user.save(update_fields=["picture_password"])
         except IntegrityError as e:
             raise SequenceAlreadyAssigned(
                 "Picture password sequence assignment failed due to repeated collisions."
             ) from e
+
+
+def assign_picture_password_if_enabled(user, facility):
+    if facility.dataset.picture_password_settings is None:
+        return
+    if are_picture_passwords_exhausted(user.dataset_id):
+        return
+    try:
+        assign_picture_password(user, facility)
+    except NoAvailableSequences:
+        pass

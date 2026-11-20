@@ -1,30 +1,52 @@
-import { render, screen } from '@testing-library/vue';
+import { render, screen, within } from '@testing-library/vue';
 import { Store } from 'vuex';
 import VueRouter from 'vue-router';
-import { ref } from 'vue';
+import { nextTick, ref } from 'vue';
 import '@testing-library/jest-dom';
 import { i18nSetup } from 'kolibri/utils/i18n';
 import { coursesStrings } from 'kolibri-common/strings/coursesStrings';
 import { coreStrings } from 'kolibri/uiText/commonCoreStrings';
 import { Resource } from 'kolibri/apiResource';
+import { pageHeading } from 'kolibri/composables/usePageTitle';
 import ContentNodeResource from 'kolibri-common/apiResources/ContentNodeResource';
 import CourseSummaryPage from '../CourseSummaryPage.vue';
 import { PageNames } from '../../../constants';
 import { RouteSegments, COMPACT_UUID_PATTERN } from '../../../routes/utils';
 /* eslint-disable import-x/named */
 import { useCourseSession, useCourseSessionMock } from '../../../composables/useCourseSession';
+import useClassSummary, { useClassSummaryMock } from '../../../composables/useClassSummary';
 /* eslint-enable import-x/named */
 import UnitReportResource from '../../../apiResources/unitReport';
+import useSidePanelTitle from '../../../composables/useSidePanelTitle';
+import { UnitPhase } from '../../../constants/courseConstants';
 
-const { unitsLabel$, learningObjectivesLabel$ } = coursesStrings;
+const {
+  unitsLabel$,
+  learningObjectivesLabel$,
+  unitTitleWithStatus$,
+  preTestInProgress$,
+  preTestResults$,
+  postTestResults$,
+} = coursesStrings;
 const { learnersLabel$ } = coreStrings;
 
 const { CLASS, COURSE_SESSION } = RouteSegments;
+
+const CLASS_NAME = 'Class A';
+const COURSE_TITLE = 'Human Biology';
 
 // Tab/panel child routes render nothing (mirrors the NoRender component in coursesRoutes.js).
 // CourseSummaryPage has a <router-view> for the assign-course side panel; using CourseSummaryPage
 // as the child component would cause a second full copy to mount inside the router-view.
 const NoRender = { render: () => null };
+
+// Stands in for the assign-course side panel, which registers the host's provided title.
+const SidePanel = {
+  setup() {
+    useSidePanelTitle();
+  },
+  render: h => h('div', { attrs: { 'data-testid': 'side-panel' } }),
+};
 
 // Mirror the real route structure and patterns without importing all route components.
 // Uses the same PageNames constants, UUID validation patterns, and nested hierarchy.
@@ -69,7 +91,17 @@ const ROUTES = [
           },
         ],
       },
+      {
+        name: PageNames.COURSE_SUMMARY_ASSIGN,
+        path: 'assign-course/',
+        component: SidePanel,
+      },
     ],
+  },
+  {
+    name: PageNames.UNIT_DETAIL,
+    path: CLASS + COURSE_SESSION + `/units/:unitContentnodeId(${COMPACT_UUID_PATTERN})`,
+    component: NoRender,
   },
 ];
 
@@ -165,8 +197,9 @@ const STUBS = {
   CoachHeader: { name: 'CoachHeader', template: '<div><slot name="actions" /></div>' },
   LearnerSidePanel: {
     name: 'LearnerSidePanel',
-    props: ['learner', 'prefetchedData'],
-    template: '<div data-testid="learner-side-panel" @click="$emit(\'close\')" />',
+    props: ['learner', 'unitReports'],
+    template:
+      '<div data-testid="learner-side-panel" :data-unit-titles="unitReports.map(u => u.title).join(\'|\')" @click="$emit(\'close\')" />',
   },
   LearningObjectiveSidePanel: {
     name: 'LearningObjectiveSidePanel',
@@ -204,6 +237,39 @@ describe('CourseSummaryPage', () => {
     ContentNodeResource.useList.mockImplementation(
       Resource.prototype.useList.bind(ContentNodeResource),
     );
+  });
+
+  describe('CourseSummaryPage — page title', () => {
+    beforeEach(() => {
+      jest.clearAllMocks();
+      useClassSummary.mockImplementation(() => useClassSummaryMock({ className: ref(CLASS_NAME) }));
+      useCourseSession.mockImplementation(() =>
+        useCourseSessionMock({
+          courseSession: ref(MOCK_COURSE_SESSION),
+          course: ref({ title: COURSE_TITLE }),
+          units: ref([{ id: UNIT_A }]),
+        }),
+      );
+    });
+
+    it('sets the tab title to the course title and class name', async () => {
+      renderPage('COURSE_SUMMARY_UNITS');
+      await nextTick();
+      expect(document.title).toBe(`${COURSE_TITLE} - ${CLASS_NAME} - Kolibri`);
+    });
+
+    it('tells the page shell it renders its own h1', async () => {
+      renderPage('COURSE_SUMMARY_UNITS');
+      await nextTick();
+      expect(pageHeading.value).toBe('');
+      expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(COURSE_TITLE);
+    });
+
+    it('gives the assign-course side panel the page title', async () => {
+      renderPage('COURSE_SUMMARY_ASSIGN');
+      await screen.findByTestId('side-panel');
+      expect(document.title).toBe(`${COURSE_TITLE} - ${CLASS_NAME} - Kolibri`);
+    });
   });
 
   describe('CourseSummaryPage — tab routing', () => {
@@ -251,6 +317,149 @@ describe('CourseSummaryPage', () => {
     });
   });
 
+  describe('CourseSummaryPage — learner report unit', () => {
+    const UNIT_C = '9'.repeat(32);
+    const UNITS = [
+      { id: UNIT_A, numberedTitle: 'Unit 1: A' },
+      { id: UNIT_B, numberedTitle: 'Unit 2: B' },
+      { id: UNIT_C, numberedTitle: 'Unit 3: C' },
+    ];
+    const closedPostTest = { status: 'closed', scores: { [LEARNER_ID]: {} } };
+
+    function mockReports(reports) {
+      UnitReportResource.fetchReports.mockResolvedValue({
+        course_title: 'Course',
+        learners: [{ id: LEARNER_ID, groupIds: [] }],
+        units: reports,
+      });
+    }
+
+    function setup({ activeUnit, reports, unitPhase = null }) {
+      mockReports(reports);
+      const unitPhaseRef = ref(unitPhase);
+      useCourseSession.mockImplementation(() =>
+        useCourseSessionMock({
+          courseSession: ref(MOCK_COURSE_SESSION),
+          units: ref(UNITS),
+          activeUnit: ref(activeUnit),
+          unitPhase: unitPhaseRef,
+        }),
+      );
+      return {
+        ...renderPage('COURSE_SUMMARY_LEARNER', { learnerId: LEARNER_ID }),
+        unitPhase: unitPhaseRef,
+      };
+    }
+
+    function learnersTabPanel() {
+      return screen.getByRole('tabpanel', { name: learnersLabel$() });
+    }
+
+    beforeEach(() => {
+      jest.clearAllMocks();
+    });
+
+    it('shows every unit in the panel and the last unit in the table once the course is complete', async () => {
+      const { findByTestId } = setup({
+        activeUnit: null,
+        unitPhase: UnitPhase.COMPLETE,
+        reports: [UNIT_A, UNIT_B, UNIT_C].map(id =>
+          unitFixture({ unit_contentnode_id: id, post_test: closedPostTest }),
+        ),
+      });
+      const labels = ['Unit 1: A', 'Unit 2: B', 'Unit 3: C'].map(title =>
+        unitTitleWithStatus$({ title, status: postTestResults$() }),
+      );
+
+      const panel = await findByTestId('learner-side-panel');
+      expect(panel).toHaveAttribute('data-unit-titles', labels.join('|'));
+      expect(
+        within(learnersTabPanel()).getByRole('heading', { level: 2, name: labels[2] }),
+      ).toBeInTheDocument();
+    });
+
+    it('shows the previous unit while the active unit has no test started', async () => {
+      const { findByTestId } = setup({
+        activeUnit: UNITS[1],
+        reports: [
+          unitFixture({ unit_contentnode_id: UNIT_A, post_test: closedPostTest }),
+          unitFixture({ unit_contentnode_id: UNIT_B }),
+          unitFixture({ unit_contentnode_id: UNIT_C }),
+        ],
+      });
+      const label = unitTitleWithStatus$({ title: 'Unit 1: A', status: postTestResults$() });
+
+      const panel = await findByTestId('learner-side-panel');
+      expect(panel).toHaveAttribute('data-unit-titles', label);
+      expect(
+        within(learnersTabPanel()).getByRole('heading', { level: 2, name: label }),
+      ).toBeInTheDocument();
+    });
+
+    it('shows the active unit once its test has started, with finished units in the panel', async () => {
+      const { findByTestId } = setup({
+        activeUnit: UNITS[1],
+        reports: [
+          unitFixture({ unit_contentnode_id: UNIT_A, post_test: closedPostTest }),
+          unitFixture({
+            unit_contentnode_id: UNIT_B,
+            pre_test: { status: 'open', scores: {} },
+          }),
+          unitFixture({ unit_contentnode_id: UNIT_C }),
+        ],
+      });
+      const activeLabel = unitTitleWithStatus$({
+        title: 'Unit 2: B',
+        status: preTestInProgress$(),
+      });
+
+      const panel = await findByTestId('learner-side-panel');
+      expect(panel).toHaveAttribute(
+        'data-unit-titles',
+        [
+          unitTitleWithStatus$({ title: 'Unit 1: A', status: postTestResults$() }),
+          activeLabel,
+        ].join('|'),
+      );
+      const tabPanel = learnersTabPanel();
+      expect(
+        within(tabPanel).getByRole('link', { name: UNITS[1].numberedTitle }),
+      ).toBeInTheDocument();
+      expect(
+        within(tabPanel).queryByRole('heading', { level: 2, name: activeLabel }),
+      ).not.toBeInTheDocument();
+    });
+
+    it('retitles the active unit results when the coach ends its pre-test', async () => {
+      const otherUnits = [UNIT_B, UNIT_C].map(id => unitFixture({ unit_contentnode_id: id }));
+      const { findByRole, unitPhase } = setup({
+        activeUnit: UNITS[0],
+        unitPhase: UnitPhase.PRE_TEST_ACTIVE,
+        reports: [
+          unitFixture({ unit_contentnode_id: UNIT_A, pre_test: { status: 'open', scores: {} } }),
+          ...otherUnits,
+        ],
+      });
+      await global.flushPromises();
+
+      mockReports([
+        unitFixture({
+          unit_contentnode_id: UNIT_A,
+          pre_test: { status: 'closed', scores: { [LEARNER_ID]: {} } },
+        }),
+        ...otherUnits,
+      ]);
+      unitPhase.value = UnitPhase.POST_TEST_PENDING;
+
+      expect(
+        await findByRole('heading', {
+          level: 2,
+          name: unitTitleWithStatus$({ title: 'Unit 1: A', status: preTestResults$() }),
+        }),
+      ).toBeInTheDocument();
+    });
+  });
+
   describe('CourseSummaryPage — unit report fetching', () => {
     beforeEach(() => {
       jest.clearAllMocks();
@@ -262,14 +471,18 @@ describe('CourseSummaryPage', () => {
         learners: [],
         units: [unitFixture(), unitFixture({ unit_contentnode_id: UNIT_B, unit_number: 2 })],
       });
+      const unitPhase = ref(null);
       useCourseSession.mockImplementation(() =>
         useCourseSessionMock({
           courseSession: ref(MOCK_COURSE_SESSION),
           units: ref([{ id: UNIT_A }, { id: UNIT_B }]),
+          unitPhase,
         }),
       );
 
       renderPage('COURSE_SUMMARY_UNITS');
+      await global.flushPromises();
+      unitPhase.value = UnitPhase.PRE_TEST_ACTIVE;
       await global.flushPromises();
 
       expect(UnitReportResource.fetchReports).toHaveBeenCalledTimes(1);

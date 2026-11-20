@@ -85,12 +85,12 @@ dependencies:
 build-mac-app:
 	$(MAKE) pyinstaller
 
-pyinstaller: clean write-version
+pyinstaller: clean write-version compile-mo
 	mkdir -p logs
 	$(PYTHON_EXEC) -OO -m PyInstaller kolibri.spec
 
 build-dmg: needs-version
-	$(PYTHON_EXEC) -m dmgbuild -s build_config/dmgbuild_settings.py "Kolibri ${KOLIBRI_VERSION}" dist/kolibri-${KOLIBRI_VERSION}.dmg
+	$(PYTHON_EXEC) build_config/build_dmg.py "Kolibri ${KOLIBRI_VERSION}" dist/kolibri-${KOLIBRI_VERSION}.dmg
 
 .PHONY: webview2
 # Download WebView2 runtime installer
@@ -134,7 +134,7 @@ update-translations:
 	@echo "Update complete. Commit the changes and upload the new source to Crowdin."
 
 compile-mo:
-	find src/kolibri_app/locales -name LC_MESSAGES -exec msgfmt {}/wxapp.po -o {}/wxapp.mo \;
+	$(PYTHON_EXEC) -c "import glob, polib; [polib.pofile(po).save_as_mofile(po[:-2] + 'mo') for po in glob.glob('src/kolibri_app/locales/*/LC_MESSAGES/wxapp.po')]"
 
 .PHONY: wxapp-extract-strings
 wxapp-extract-strings:
@@ -147,6 +147,7 @@ wxapp-extract-strings:
 		--package-name=kolibri-app \
 		--output=- \
 		src/kolibri_app/*.py \
+		src/kolibri_app/windows/*.py \
 	| msgen \
 		--no-wrap \
 		--output=src/kolibri_app/locales/en/LC_MESSAGES/wxapp.po \

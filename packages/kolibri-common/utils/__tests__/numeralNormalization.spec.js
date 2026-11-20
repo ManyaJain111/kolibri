@@ -1,7 +1,6 @@
 import {
   normalizeNumerals,
   normalizeUserInput,
-  getLocalizedDigits,
   localizeNumerals,
   localizeUserInput,
 } from '../numeralNormalization';
@@ -33,6 +32,18 @@ describe('normalizeNumerals', () => {
 
   it('converts Khmer digits to ASCII', () => {
     expect(normalizeNumerals('០១២៣៤៥៦៧៨៩')).toBe('0123456789');
+  });
+
+  it('converts every Mathematical Alphanumeric digit to ASCII', () => {
+    const run = String.fromCodePoint(...Array.from({ length: 50 }, (_, i) => 0x1d7ce + i));
+    expect(normalizeNumerals(run)).toBe('0123456789'.repeat(5));
+    expect(normalizeNumerals('𝟙')).toBe('1');
+    expect(normalizeNumerals('𝟣')).toBe('1');
+  });
+
+  it('converts Myanmar Pao and Eastern Pwo Karen digits to ASCII', () => {
+    const run = String.fromCodePoint(...Array.from({ length: 20 }, (_, i) => 0x116d0 + i));
+    expect(normalizeNumerals(run)).toBe('0123456789'.repeat(2));
   });
 
   it('leaves ASCII digits unchanged', () => {
@@ -82,6 +93,15 @@ describe('normalizeUserInput', () => {
     };
     expect(normalizeUserInput(input)).toEqual({
       'numeric-input 1': { currentValue: '42' },
+    });
+  });
+
+  it('converts the Arabic decimal separator the keypad inserts to a point', () => {
+    const input = {
+      'numeric-input 1': { currentValue: '۳٫۵' },
+    };
+    expect(normalizeUserInput(input)).toEqual({
+      'numeric-input 1': { currentValue: '3.5' },
     });
   });
 
@@ -147,35 +167,6 @@ describe('normalizeNumerals selectivity', () => {
 
   it('does not modify letters', () => {
     expect(normalizeNumerals('abc')).toBe('abc');
-  });
-});
-
-describe('getLocalizedDigits', () => {
-  it('returns null for English locale', () => {
-    expect(getLocalizedDigits('en')).toBeNull();
-  });
-
-  it('returns null for null/undefined locale', () => {
-    expect(getLocalizedDigits(null)).toBeNull();
-    expect(getLocalizedDigits(undefined)).toBeNull();
-  });
-
-  it('returns localized digits for Arabic locale', () => {
-    const digits = getLocalizedDigits('ar-EG');
-    // ar-EG uses Eastern Arabic numerals
-    if (digits) {
-      expect(digits).toHaveLength(10);
-      expect(digits[0]).toBe('٠');
-      expect(digits[1]).toBe('١');
-      expect(digits[9]).toBe('٩');
-    }
-  });
-
-  it('returns null for locales whose digits match ASCII', () => {
-    // French, German, Spanish all use the same digits as ASCII
-    expect(getLocalizedDigits('fr')).toBeNull();
-    expect(getLocalizedDigits('de')).toBeNull();
-    expect(getLocalizedDigits('es')).toBeNull();
   });
 });
 

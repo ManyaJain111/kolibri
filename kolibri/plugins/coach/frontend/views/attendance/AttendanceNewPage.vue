@@ -14,7 +14,7 @@
       <AttendanceFormTable :form="form">
         <template #action-button>
           <KButton
-            :text="submitAttendanceAction$()"
+            :text="coreString('saveAction')"
             :primary="true"
             :disabled="submitting"
             @click="handleSubmit"
@@ -32,6 +32,8 @@
   import { computed, ref } from 'vue';
   import { now } from 'kolibri/utils/serverClock';
   import useSnackbar from 'kolibri/composables/useSnackbar';
+  import usePageTitle from 'kolibri/composables/usePageTitle';
+  import { coreString } from 'kolibri/uiText/commonCoreStrings';
   import { attendanceStrings } from 'kolibri-common/strings/attendanceStrings';
   import { pageLoading } from 'kolibri-common/composables/usePageLoading';
   import useCoreCoach from '../../composables/useCoreCoach';
@@ -47,12 +49,12 @@
       AttendanceFormTable,
     },
     setup() {
-      const { classId } = useCoreCoach();
+      const { classId, className } = useCoreCoach();
+      usePageTitle(className, { hasVisibleHeading: true });
       const { formatAttendanceDateTime, createSession } = useAttendance();
       const { createSnackbar } = useSnackbar();
 
-      const { pageHeading$, submitSuccessMessage$, submitErrorMessage$, submitAttendanceAction$ } =
-        attendanceStrings;
+      const { pageHeading$, submitSuccessMessage$, submitErrorMessage$ } = attendanceStrings;
 
       const isDirty = ref(false);
       const submitting = ref(false);
@@ -99,7 +101,7 @@
         handleSubmit,
         form,
         backRoute: form.backRoute,
-        submitAttendanceAction$,
+        coreString,
       };
     },
     beforeRouteLeave(to, from, next) {

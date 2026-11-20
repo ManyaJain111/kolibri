@@ -15,7 +15,7 @@
         <h1>{{ pageTitle }}</h1>
 
         <p v-if="!hasAnyLearners">
-          {{ noLearnersInClassMessage$() }}
+          {{ coreString('noLearnersInClassLabel') }}
         </p>
 
         <AttendanceFormTable
@@ -64,8 +64,10 @@
   import { useRoute } from 'vue-router/composables';
   import { coreString } from 'kolibri/uiText/commonCoreStrings';
   import useSnackbar from 'kolibri/composables/useSnackbar';
+  import usePageTitle from 'kolibri/composables/usePageTitle';
   import { attendanceStrings } from 'kolibri-common/strings/attendanceStrings';
   import { pageLoading } from 'kolibri-common/composables/usePageLoading';
+  import useCoreCoach from '../../composables/useCoreCoach';
   import { useAttendance } from '../../composables/useAttendance';
   import useAttendanceForm from '../../composables/useAttendanceForm';
   import CoachImmersivePage from '../CoachImmersivePage';
@@ -79,6 +81,8 @@
     },
     setup() {
       const route = useRoute();
+      const { className } = useCoreCoach();
+      usePageTitle(className, { hasVisibleHeading: true });
       const { fetchSession, fetchRecords, bulkUpdateRecords, formatAttendanceDateTime } =
         useAttendance();
       const { createSnackbar } = useSnackbar();
@@ -90,7 +94,6 @@
         submitErrorMessage$,
         presentCount$,
         absentCount$,
-        noLearnersInClassMessage$,
       } = attendanceStrings;
 
       const loading = ref(true);
@@ -215,7 +218,6 @@
         saveConfirmationTitle$,
         presentCount$,
         absentCount$,
-        noLearnersInClassMessage$,
       };
     },
     beforeRouteLeave(to, from, next) {

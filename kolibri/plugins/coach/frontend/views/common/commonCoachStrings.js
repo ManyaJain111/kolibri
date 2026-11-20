@@ -309,11 +309,6 @@ const coachStrings = createTranslator('CommonCoachStrings', {
     context:
       "Translate as a VERB. Refers to the 'Plan' tab where coaches manage lessons, quizzes, and groups.",
   },
-  previewLabel: {
-    message: 'Preview',
-    context:
-      'When coaches have finished selecting resources for a quiz, they can  preview the quiz to see what it looks like.',
-  },
   questionLabel: {
     message: 'Question',
     context: 'Refers to a quiz question.',
@@ -436,13 +431,13 @@ const coachStrings = createTranslator('CommonCoachStrings', {
   },
   saveLessonErrorDeletedUsers: {
     message:
-      'There was a problem saving this lesson. One or more selected users no longer exist in this class. Please refresh the page and try again.',
+      'There was a problem saving this lesson. One or more selected users are no longer enrolled in this class. Please refresh the page and try again.',
     context:
       'Error message shown when saving a lesson fails because one or more selected individual learners have been deleted from the facility.',
   },
   saveQuizErrorDeletedUsers: {
     message:
-      'There was a problem saving this quiz. One or more selected users no longer exist in this class. Please refresh the page and try again.',
+      'There was a problem saving this quiz. One or more selected users are no longer enrolled in this class. Please refresh the page and try again.',
     context:
       'Error message shown when saving a quiz fails because one or more selected individual learners have been deleted from the facility.',
   },

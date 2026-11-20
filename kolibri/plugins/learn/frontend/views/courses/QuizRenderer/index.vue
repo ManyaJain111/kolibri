@@ -17,9 +17,9 @@
           @repeat="repeat"
         />
         <div v-else>
-          <h1>
+          <h2 class="question-heading">
             {{ $tr('question', { num: questionNumber + 1, total: questionsTotal }) }}
-          </h1>
+          </h2>
           <ContentViewer
             v-if="itemId"
             ref="contentViewer"
@@ -68,7 +68,7 @@
         class="bottom-bar"
         :style="{
           background: 'var(--tokens-surface)',
-          borderTop: `1px solid ${$themeTokens.fineLine}`,
+          borderTop: '1px solid var(--tokens-fineLine)',
         }"
       >
         <div class="navigation-buttons-wrapper">
@@ -370,7 +370,9 @@
           const interaction = {
             answer: answer.answerState,
             simple_answer: answer.simpleAnswer || '',
-            correct: answer.correct,
+            // Survey questions have no right answer; mark them correct so
+            // coach reports don't flag them as difficult.
+            correct: this.isSurvey ? 1 : answer.correct,
             item: this.itemId,
             id: this.currentAttempt.id,
             time_spent:
@@ -473,6 +475,13 @@
 <style lang="scss" scoped>
 
   @import '../../buttons';
+
+  // Matches h1 as rendered: normalize.css's h1 rule loads after main.scss and wins
+  .question-heading {
+    margin-top: 0.67em;
+    margin-bottom: 0.67em;
+    font-size: 2em;
+  }
 
   .bottom-bar {
     display: flex;

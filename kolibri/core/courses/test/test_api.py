@@ -20,6 +20,9 @@ from kolibri.core.content.models import ContentNode
 from kolibri.core.logger.models import ContentSummaryLog
 from kolibri.core.logger.models import MasteryLog
 from kolibri.core.logger.utils.pre_post_test import get_synthetic_content_id
+from kolibri.core.notifications.models import LearnerProgressNotification
+from kolibri.core.notifications.models import NotificationEventType
+from kolibri.core.notifications.models import NotificationObjectType
 
 from .. import models
 from ..models import TestType
@@ -119,6 +122,33 @@ class CourseSessionAPITestCase(APITestCase):
             )
         )
         self.assertEqual(response.status_code, 204)
+
+    def test_course_session_delete_removes_its_notifications(self):
+        for course_session in (self.courseSession, self.courseSession_2):
+            LearnerProgressNotification.objects.create(
+                notification_object=NotificationObjectType.Resource,
+                notification_event=NotificationEventType.Started,
+                user_id=self.admin.id,
+                classroom_id=self.classroom.id,
+                course_session_id=course_session.id,
+            )
+        self.client.login(username=self.admin.username, password=DUMMY_PASSWORD)
+
+        self.client.delete(
+            reverse(
+                "kolibri:core:coursesession-detail",
+                kwargs={"pk": self.courseSession_2.id},
+            )
+        )
+
+        self.assertEqual(
+            list(
+                LearnerProgressNotification.objects.values_list(
+                    "course_session_id", flat=True
+                )
+            ),
+            [self.courseSession.id],
+        )
 
     def test_logged_in_admin_course_session_create(self):
         self.client.login(username=self.admin.username, password=DUMMY_PASSWORD)
@@ -869,6 +899,15 @@ class CourseSessionProgressAPITestCase(APITestCase):
             modality=modalities.UNIT,
             title="Unit One",
         )
+        cls.unit2 = ContentNode.objects.create(
+            id=uuid.uuid4().hex,
+            channel_id=channel_id,
+            content_id=uuid.uuid4().hex,
+            parent=cls.course,
+            available=True,
+            modality=modalities.UNIT,
+            title="Unit Two",
+        )
         # Rebuild MPTT tree so lft/rght/level values are consistent
         ContentNode.objects.rebuild()
 
@@ -933,14 +972,6 @@ class CourseSessionProgressAPITestCase(APITestCase):
         self.assertEqual(len(items), 1)
         return items[0]
 
-    def test_no_test_returns_pre_test_pending_and_null_progress(self):
-        data = self._get_session_data()
-        self.assertEqual(data["unit_phase"], UnitPhase.PreTestPending)
-        self.assertIsNone(data["test_learner_progress"])
-        self.assertIsNotNone(data["active_unit_number"])
-        self.assertEqual(data["active_unit_number"], 1)
-        self.assertEqual(data["active_unit_title"], self.unit.title)
-
     def test_pre_test_active_returns_correct_progress(self):
         self._create_test_assignment(TestType.Pre, closed=False)
         synthetic_cid = get_synthetic_content_id(
@@ -976,44 +1007,62 @@ class CourseSessionProgressAPITestCase(APITestCase):
         self.assertEqual(progress["notStarted"], 1)
         self.assertEqual(progress["total"], 2)
 
-    def test_complete_phase_returns_post_test_progress(self):
-        self._create_test_assignment(TestType.Pre, closed=True)
-        self._create_test_assignment(TestType.Post, closed=True)
-        synthetic_cid = get_synthetic_content_id(
-            str(self.course_session.id), str(self.unit.id), TestType.Post
+    def _post_test_action(self, action, unit, test_type):
+        resp = self.client.post(
+            reverse(
+                f"kolibri:core:coursesession-{action}-test",
+                kwargs={"pk": self.course_session.id},
+            ),
+            {"unit_contentnode_id": unit.id, "test_type": test_type},
+            format="json",
         )
-        self._make_learner_log(self.learner1, synthetic_cid, True)
-        self._make_learner_log(self.learner2, synthetic_cid, True)
+        self.assertEqual(resp.status_code, 200)
 
+    def test_progress_only_describes_the_open_test(self):
+        # Walk the course as a coach would. Progress must always belong to the
+        # open test, and be empty when no test is open: a closed test's tally
+        # is stale and would contradict the status column.
         data = self._get_session_data()
-        self.assertEqual(data["unit_phase"], UnitPhase.Complete)
-        self.assertIsNone(data["active_unit_number"])
-        progress = data["test_learner_progress"]
-        self.assertIsNotNone(progress)
-        self.assertEqual(progress["completed"], 2)
-        self.assertEqual(progress["started"], 0)
-        self.assertEqual(progress["notStarted"], 0)
-        self.assertEqual(progress["total"], 2)
-
-    def test_post_test_pending_returns_correct_phase_and_progress(self):
-        # Pre-test closed, post-test not yet activated: PostTestPending
-        self._create_test_assignment(TestType.Pre, closed=True)
-        synthetic_cid = get_synthetic_content_id(
-            str(self.course_session.id), str(self.unit.id), TestType.Pre
-        )
-        self._make_learner_log(self.learner1, synthetic_cid, True)
-        self._make_learner_log(self.learner2, synthetic_cid, False)
-
-        data = self._get_session_data()
-        self.assertEqual(data["unit_phase"], UnitPhase.PostTestPending)
+        self.assertEqual(data["unit_phase"], UnitPhase.PreTestPending)
         self.assertEqual(data["active_unit_number"], 1)
-        # Progress reflects the closed pre-test (last test for the unit)
-        progress = data["test_learner_progress"]
-        self.assertIsNotNone(progress)
-        self.assertEqual(progress["completed"], 1)
-        self.assertEqual(progress["started"], 1)
-        self.assertEqual(progress["notStarted"], 0)
-        self.assertEqual(progress["total"], 2)
+        self.assertEqual(data["active_unit_title"], self.unit.title)
+        self.assertIsNone(data["test_learner_progress"])
+
+        units = {1: self.unit, 2: self.unit2}
+        open_phases = {
+            TestType.Pre: UnitPhase.PreTestActive,
+            TestType.Post: UnitPhase.PostTestActive,
+        }
+        steps = [
+            # unit number, test type, phase and unit number after closing
+            (1, TestType.Pre, UnitPhase.PostTestPending, 1),
+            (1, TestType.Post, UnitPhase.PreTestPending, 2),
+            (2, TestType.Pre, UnitPhase.PostTestPending, 2),
+            (2, TestType.Post, UnitPhase.Complete, None),
+        ]
+        for number, test_type, closed_phase, next_number in steps:
+            unit = units[number]
+            with self.subTest(unit=number, test_type=test_type):
+                self._post_test_action("activate", unit, test_type)
+                data = self._get_session_data()
+                self.assertEqual(data["unit_phase"], open_phases[test_type])
+                self.assertEqual(data["active_unit_number"], number)
+                # Every earlier test was completed by learner1; a fresh test
+                # starting at zero shows none of that carried over.
+                self.assertEqual(data["test_learner_progress"]["completed"], 0)
+
+                synthetic_cid = get_synthetic_content_id(
+                    str(self.course_session.id), str(unit.id), test_type
+                )
+                self._make_learner_log(self.learner1, synthetic_cid, True)
+                data = self._get_session_data()
+                self.assertEqual(data["test_learner_progress"]["completed"], 1)
+
+                self._post_test_action("close", unit, test_type)
+                data = self._get_session_data()
+                self.assertEqual(data["unit_phase"], closed_phase)
+                self.assertEqual(data["active_unit_number"], next_number)
+                self.assertIsNone(data["test_learner_progress"])
 
     def test_duplicate_mastery_log_complete_wins(self):
         # A learner with both complete=True and complete=False MasteryLog rows for
@@ -1401,6 +1450,62 @@ class UnitTestActivationAPITestCase(APITestCase):
         response = self._get_active_test()
 
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def _create_open_tests_from_two_devices(self):
+        # activate_test keeps one open test per course session only on the device
+        # it runs on, so a sync can bring in a second open test.
+        for unit, test_type in ((self.unit, "post"), (self.unit2, "pre")):
+            models.UnitTestAssignment.objects.create(
+                course_session=self.courseSession,
+                unit_contentnode_id=unit.id,
+                collection=self.classroom,
+                test_type=test_type,
+                closed=False,
+                activated_by=self.coach,
+            )
+
+    def test_close_test_with_two_open_tests_closes_requested_test(self):
+        self.client.login(username=self.coach.username, password=DUMMY_PASSWORD)
+        self._create_open_tests_from_two_devices()
+
+        response = self._close_test(self.unit2.id, "pre")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["unit_contentnode_id"], self.unit2.id)
+        self.assertEqual(response.data["test_type"], "pre")
+        self.assertEqual(response.data["unit_phase"], "post_test_active")
+        self.assertEqual(response.data["active_unit_id"], self.unit.id)
+        open_tests = models.UnitTestAssignment.objects.filter(
+            course_session=self.courseSession, closed=False
+        )
+        self.assertEqual(
+            list(open_tests.values_list("unit_contentnode_id", "test_type")),
+            [(self.unit.id, "post")],
+        )
+
+    def test_close_test_with_two_open_tests_rejects_test_that_is_not_open(self):
+        self.client.login(username=self.coach.username, password=DUMMY_PASSWORD)
+        self._create_open_tests_from_two_devices()
+
+        response = self._close_test(self.unit.id, "pre")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            models.UnitTestAssignment.objects.filter(
+                course_session=self.courseSession, closed=False
+            ).count(),
+            2,
+        )
+
+    def test_active_test_with_two_open_tests_returns_latest_unit(self):
+        self.client.login(username=self.coach.username, password=DUMMY_PASSWORD)
+        self._create_open_tests_from_two_devices()
+
+        response = self._get_active_test()
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["unit_contentnode_id"], self.unit2.id)
+        self.assertEqual(response.data["test_type"], "pre")
 
     def test_activate_test_updates_existing_assignment(self):
         """Test that activating a test updates an existing assignment"""

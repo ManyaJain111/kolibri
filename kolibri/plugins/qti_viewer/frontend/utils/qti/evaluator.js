@@ -667,9 +667,21 @@ export function evaluateNode(node, variables, declarations = {}, testStore = nul
         const containsBaseType = inferBaseType(node, declarations);
         return container.some(item => qtiValuesEqual(item, sub, containsBaseType));
       }
+      const containsBaseType = inferBaseType(node, declarations);
+      // Ordered containment: sub must appear as a run of consecutive values,
+      // in the same order, within container. [A,B,C] contains [B,C] but not
+      // [C,A] or [A,C]. Only the sub's cardinality is checked: the spec
+      // requires both operands to share a cardinality.
+      if (subCardinality === CARDINALITY.ORDERED) {
+        for (let start = 0; start + sub.length <= container.length; start++) {
+          if (sub.every((v, i) => qtiValuesEqual(container[start + i], v, containsBaseType))) {
+            return true;
+          }
+        }
+        return false;
+      }
       // Multiset containment: every value in sub must be present in
       // container with at least the same multiplicity.
-      const containsBaseType = inferBaseType(node, declarations);
       const counts = new Map();
       for (const v of container) {
         const k = qtiValueKey(v, containsBaseType);
@@ -825,13 +837,13 @@ export function evaluateNode(node, variables, declarations = {}, testStore = nul
       return container[n - 1] ?? null;
     }
     case 'delete': {
-      const [container, ...toDelete] = evalChildren();
-      if (!Array.isArray(container)) return null;
-      // qti-delete returns NULL if either sub-expression is NULL
+      // The first sub-expression is the value to remove, the second is the
+      // container it is removed from. NULL if either sub-expression is NULL.
       //   https://www.imsglobal.org/spec/qti/v3p0/info/#OpDelete
-      if (toDelete.some(d => d == null)) return null;
+      const [value, container] = evalChildren();
+      if (value == null || !Array.isArray(container)) return null;
       const deleteBaseType = inferBaseType(node, declarations);
-      return container.filter(item => !toDelete.some(d => qtiValuesEqual(item, d, deleteBaseType)));
+      return container.filter(item => !qtiValuesEqual(item, value, deleteBaseType));
     }
     // qti-multiple / qti-ordered: each accepts 0+ sub-expressions of single
     // or multiple (or for ordered, single or ordered) cardinality

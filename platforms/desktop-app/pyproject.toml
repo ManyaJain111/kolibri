@@ -49,6 +49,7 @@ build = [
     "dmgbuild==1.6.7; sys_platform == 'darwin' and python_version >= '3.10'",
     "wheel; python_version >= '3.10'",
     "attrdict==2.0.1; python_version >= '3.10'",
+    "polib==1.2.0; python_version >= '3.10'",
     # PyInstaller's pkg_resources hooks need setuptools at bundle time; the
     # source build group pinned <71 deliberately (setuptools 71 broke
     # pkg_resources). setuptools-scm is dropped (Phase 3 replaces it), but this
@@ -67,14 +68,14 @@ package = false
 
 [tool.pytest.ini_options]
 # kolibri_app lives under src/ and the member isn't installed (package = false);
-# tests/conftest.py puts src/ on sys.path before collection (matching
-# platforms/debian-server), so no pytest-pythonpath plugin dependency is needed.
+# tests/conftest.py puts src/ on sys.path before collection, so no
+# pytest-pythonpath plugin dependency is needed.
 testpaths = ["tests"]
 
 [tool.ruff]
 # Inherit root ruff (select, isort first-party list, force-single-line); only
 # override target-version — the app targets 3.10, root stays py37. Matches
-# platforms/debian-server.
+# platforms/debian.
 extend = "../../pyproject.toml"
 target-version = "py310"
 

@@ -1,4 +1,4 @@
-import { render, screen, fireEvent, within } from '@testing-library/vue';
+import { render, screen, fireEvent, within, waitFor } from '@testing-library/vue';
 import userEvent from '@testing-library/user-event';
 import '@testing-library/jest-dom';
 import { ref, computed } from 'vue';
@@ -6,6 +6,7 @@ import { coreString } from 'kolibri/uiText/commonCoreStrings';
 import { picturePasswordStrings } from 'kolibri-common/strings/picturePasswords';
 import useUser, { useUserMock } from 'kolibri/composables/useUser'; // eslint-disable-line
 import useSnackbar, { useSnackbarMock } from 'kolibri/composables/useSnackbar'; // eslint-disable-line
+import { navItems } from 'kolibri/composables/useNav';
 import { OptionsForSignIn, PicturePasswordIconStyle } from 'kolibri-common/constants/Auth';
 import useFacilityEditor from '../../composables/useFacilityEditor';
 import facilityConfigPageStrings from '../FacilityConfigPage/strings';
@@ -16,12 +17,11 @@ const {
   picturePasswordInfoBody$,
   childFriendlyIconsInfoLabel$,
   childFriendlyIcons$,
-  howLearnersSignIn$,
   picturePasswordUnavailableExplanation$,
   picturePasswordUnavailableTitle$,
 } = picturePasswordStrings;
 
-const { learnerNeedPasswordToLogin$, learnerCanEditPassword$ } = facilityConfigPageStrings;
+const { pageHeader$ } = facilityConfigPageStrings;
 
 jest.mock('kolibri/composables/useUser');
 jest.mock('../../../../device/frontend/views/DeviceSettingsPage/api.js', () => ({
@@ -36,12 +36,6 @@ jest.mock('kolibri-common/composables/useTaskPolling', () => {
     default: jest.fn(() => ({ tasks: ref([]) })),
   };
 });
-jest.mock('../FacilityAppBarPage', () => ({
-  name: 'FacilityAppBarPage',
-  render(h) {
-    return h('div', this.$slots.default);
-  },
-}));
 jest.mock('vue-router/composables', () => ({
   useRoute: jest.fn(() => ({
     params: {},
@@ -112,8 +106,6 @@ function createMockFacilityConfig(overrides = {}) {
     facilityDataLoading: ref(false),
     settingsHaveChanged: ref(false),
     isPinSet: ref(null),
-    isAttendanceFeatureEnabled: ref(true),
-    isPictureLoginFeatureEnabled: ref(true),
     picturePasswordSettings: ref({
       icon_style: PicturePasswordIconStyle.COLORFUL,
       show_icon_text: false,
@@ -153,6 +145,17 @@ describe('facility config page view', () => {
     useUser.mockImplementation(() => useUserMock({ isAppContext: false }));
     useFacilityEditor.mockImplementation(() => createMockFacilityConfig());
     createSnackbar.mockReset();
+    navItems.value = [];
+  });
+
+  it('titles the tab with its document title, the only h1', async () => {
+    document.title = '';
+    renderPage();
+    const { documentTitle$ } = facilityConfigPageStrings;
+    await waitFor(() => expect(document.title).toBe(`${documentTitle$()} - Kolibri`));
+    const headings = screen.getAllByRole('heading', { level: 1 });
+    expect(headings).toHaveLength(1);
+    expect(headings[0]).toHaveTextContent(pageHeader$());
   });
 
   it('shows all facility setting checkboxes to the admin', () => {
@@ -322,13 +325,15 @@ describe('facility config page view', () => {
   });
 
   describe('in the Android app mode', () => {
+    // The app shell's bottom navigation bar needs a registered nav item.
+    beforeEach(() => {
+      navItems.value = [{ url: '/', label: coreString('facilityLabel'), icon: 'facility' }];
+    });
+
     it('shows Save changes in the page content instead of the bottom app bar', () => {
       renderPage({ isAppContext: true });
-      const bottomBar = screen.getByTestId('bottom-bar');
+      expect(screen.queryByTestId('bottom-bar')).not.toBeInTheDocument();
       const pageContainer = screen.getByTestId('page-container');
-      expect(
-        within(bottomBar).queryByRole('button', { name: coreString('saveChangesAction') }),
-      ).not.toBeInTheDocument();
       expect(
         within(pageContainer).getByRole('button', { name: coreString('saveChangesAction') }),
       ).toBeInTheDocument();
@@ -388,79 +393,6 @@ describe('facility config page view', () => {
       renderExhausted({ signInOption: OptionsForSignIn.PICTURE_PASSWORD });
       expect(screen.getByTestId('child_friendly_icons').querySelector('input')).toBeDisabled();
       expect(screen.getByTestId('standard_icons').querySelector('input')).toBeDisabled();
-    });
-  });
-
-  describe('when the picture login feature is disabled', () => {
-    function renderDisabled(extra = {}) {
-      return renderPage({
-        mockFacilityConfig: {
-          isPictureLoginFeatureEnabled: ref(false),
-          ...extra,
-        },
-      });
-    }
-
-    function getUsersSection() {
-      return screen.getByRole('heading', { name: coreString('usersLabel') }).closest('section');
-    }
-
-    it('hides the "how learners sign in" section', () => {
-      renderDisabled();
-      expect(screen.queryByRole('heading', { name: howLearnersSignIn$() })).not.toBeInTheDocument();
-    });
-
-    it('shows the legacy require-password checkbox inside the Users section, reflecting the inverted setting', () => {
-      const settings = ref({ learner_can_login_with_no_password: false });
-      renderDisabled({ settings });
-      const checkbox = within(getUsersSection()).getByRole('checkbox', {
-        name: learnerNeedPasswordToLogin$(),
-      });
-      expect(checkbox).toBeChecked();
-    });
-
-    it('switches signInOption to USERNAME_ONLY when the require-password checkbox is unchecked', async () => {
-      const mockFacilityConfig = createMockFacilityConfig({
-        isPictureLoginFeatureEnabled: ref(false),
-      });
-      renderPage({ mockFacilityConfig });
-      await userEvent.click(screen.getByRole('checkbox', { name: learnerNeedPasswordToLogin$() }));
-      expect(mockFacilityConfig.signInOption.value).toBe(OptionsForSignIn.USERNAME_ONLY);
-    });
-
-    it('shows the edit-password checkbox inside the Users section regardless of signInOption', () => {
-      // With signInOption=USERNAME_ONLY this checkbox would normally be hidden by
-      // the signin-section template; once the section is gone it must remain visible.
-      renderDisabled({ signInOption: OptionsForSignIn.USERNAME_ONLY });
-      expect(
-        within(getUsersSection()).getByRole('checkbox', { name: learnerCanEditPassword$() }),
-      ).toBeInTheDocument();
-    });
-
-    it('disables the edit-password checkbox when password is not required', () => {
-      renderDisabled({ signInOption: OptionsForSignIn.USERNAME_ONLY });
-      expect(screen.getByRole('checkbox', { name: learnerCanEditPassword$() })).toBeDisabled();
-    });
-
-    describe('when picture-password is already selected in settings', () => {
-      it('shows the require-password checkbox unchecked', () => {
-        renderDisabled({ signInOption: OptionsForSignIn.PICTURE_PASSWORD });
-        expect(
-          screen.getByRole('checkbox', { name: learnerNeedPasswordToLogin$() }),
-        ).not.toBeChecked();
-      });
-
-      it('switches signInOption to USERNAME_PASSWORD when the require-password checkbox is checked', async () => {
-        const mockFacilityConfig = createMockFacilityConfig({
-          isPictureLoginFeatureEnabled: ref(false),
-          signInOption: OptionsForSignIn.PICTURE_PASSWORD,
-        });
-        renderPage({ mockFacilityConfig });
-        await userEvent.click(
-          screen.getByRole('checkbox', { name: learnerNeedPasswordToLogin$() }),
-        );
-        expect(mockFacilityConfig.signInOption.value).toBe(OptionsForSignIn.USERNAME_PASSWORD);
-      });
     });
   });
 });

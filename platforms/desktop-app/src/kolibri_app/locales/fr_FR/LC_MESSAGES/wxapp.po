@@ -1,109 +1,245 @@
 msgid ""
 msgstr ""
-"Project-Id-Version: kolibri-mac-app\n"
+"Project-Id-Version: kolibri\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2019-10-29 08:54-0700\n"
-"PO-Revision-Date: 2019-12-17 04:35\n"
-"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"POT-Creation-Date: 2026-10-09 12:24-0400\n"
+"PO-Revision-Date: 2026-10-28 00:05\n"
+"Last-Translator: Learning Equality <dev@learningequality.org>\n"
 "Language-Team: French\n"
-"Language: fr_FR\n"
+"Language: fr\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=2; plural=(n > 1);\n"
-"X-Crowdin-Project: kolibri-mac-app\n"
+"X-Crowdin-Project: kolibri\n"
+"X-Crowdin-Project-ID: 201933\n"
 "X-Crowdin-Language: fr\n"
-"X-Crowdin-File: macapp.pot\n"
+"X-Crowdin-File: /release/desktop_app.po\n"
+"X-Crowdin-File-ID: 5227\n"
 
-#: src/main.py:190
-msgid "File"
-msgstr "Fichier"
+#: src/kolibri_app/about_dialog.py:21
+msgid "About Kolibri"
+msgstr "A propos de Kolibri"
 
-#: src/main.py:191
-msgid "New Window"
-msgstr "Nouvelle fenêtre"
+#: src/kolibri_app/about_dialog.py:40
+#, python-format
+msgid "App version: %(version)s"
+msgstr "Version de l'appli : %(version)s"
 
-#: src/main.py:192
-msgid "Close Window"
-msgstr "Fermer la fenêtre"
+#: src/kolibri_app/about_dialog.py:42
+#, python-format
+msgid "Kolibri version: %(version)s"
+msgstr "Version de Kolibri : %(version)s"
 
-#: src/main.py:194
-msgid "Open Kolibri Home Folder"
-msgstr "Ouvrir le dossier accueil de Kolibri"
-
-#: src/main.py:198
-msgid "Edit"
-msgstr "Modifier"
-
-#: src/main.py:199
-msgid "Undo"
-msgstr "Annuler"
-
-#: src/main.py:200
-msgid "Redo"
-msgstr "Refaire"
-
-#: src/main.py:202
-msgid "Cut"
-msgstr "Couper"
-
-#: src/main.py:203
-msgid "Copy"
-msgstr "Copier"
-
-#: src/main.py:204
-msgid "Paste"
-msgstr "Coller"
-
-#: src/main.py:205
-msgid "Select All"
-msgstr "Selectionner tout"
-
-#: src/main.py:208
-msgid "View"
-msgstr "Afficher"
-
-#: src/main.py:209
-msgid "Reload"
-msgstr "Recharger"
-
-#: src/main.py:210
-msgid "Actual Size"
-msgstr "Taille actuelle"
-
-#: src/main.py:211
-msgid "Zoom In"
-msgstr "Zoom Avant"
-
-#: src/main.py:212
-msgid "Zoom Out"
-msgstr "Zoom Arrière"
-
-#: src/main.py:214
-msgid "Open in Browser"
-msgstr "Ouvrir dans le navigateur"
-
-#: src/main.py:217
-msgid "History"
-msgstr "Histoire"
-
-#: src/main.py:218
-msgid "Back"
-msgstr "Retour"
-
-#: src/main.py:219
-msgid "Forward"
-msgstr "Faire suivre"
-
-#: src/main.py:222
-msgid "Help"
-msgstr "Aide"
-
-#: src/main.py:223
+#: src/kolibri_app/about_dialog.py:45 src/kolibri_app/view.py:278
 msgid "Documentation"
 msgstr "Documentation"
 
-#: src/main.py:224
+#: src/kolibri_app/about_dialog.py:47
+msgid "Community Forum"
+msgstr "Forum de la communauté"
+
+#: src/kolibri_app/about_dialog.py:60
+#, python-format
+msgid "© %(year)s Learning Equality"
+msgstr "© %(year)s Learning Equality"
+
+#: src/kolibri_app/about_dialog.py:64
+msgid "Close"
+msgstr "Fermer"
+
+#: src/kolibri_app/view.py:217
+msgid "Open Kolibri in Browser"
+msgstr "Ouvrir Kolibri dans le navigateur"
+
+#: src/kolibri_app/view.py:223
+msgid "Open Kolibri Home Folder"
+msgstr "Ouvrir le dossier d'accueil de Kolibri"
+
+#: src/kolibri_app/view.py:231 src/kolibri_app/view.py:302
+msgid "About Kolibri…"
+msgstr "À propos de Kolibri…"
+
+#: src/kolibri_app/view.py:241
+msgid "Cut\tCtrl+X"
+msgstr "Couper\tCtrl+X"
+
+#: src/kolibri_app/view.py:242
+msgid "Copy\tCtrl+C"
+msgstr "Copier\tCtrl+C"
+
+#: src/kolibri_app/view.py:243
+msgid "Paste\tCtrl+V"
+msgstr "Coller\tCtrl+V"
+
+#: src/kolibri_app/view.py:245
+msgid "Select All\tCtrl+A"
+msgstr "Tout sélectionner\tCtrl+A"
+
+#: src/kolibri_app/view.py:247
+msgid "Edit"
+msgstr "Modifier"
+
+#: src/kolibri_app/view.py:249
+msgid "File"
+msgstr "Fichier"
+
+#: src/kolibri_app/view.py:253
+msgid "Reload"
+msgstr "Recharger"
+
+#: src/kolibri_app/view.py:257
+msgid "Actual Size\tCtrl+0"
+msgstr "Taille réelle\tCtrl+0"
+
+#: src/kolibri_app/view.py:263
+msgid "Zoom In\tCtrl++"
+msgstr "Zoomer\tCtrl++"
+
+#: src/kolibri_app/view.py:269
+msgid "Zoom Out\tCtrl+-"
+msgstr "Dézoomer\tCtrl+-"
+
+#: src/kolibri_app/view.py:273
+msgid "View"
+msgstr "Afficher"
+
+#: src/kolibri_app/view.py:284
 msgid "Community Forums"
 msgstr "Forums de la communauté"
+
+#: src/kolibri_app/view.py:290
+msgid "Show Logs"
+msgstr "Afficher les journaux"
+
+#: src/kolibri_app/view.py:295
+msgid "Open Developer Tools"
+msgstr "Ouvrir les outils de développement"
+
+#: src/kolibri_app/view.py:298
+msgid "Troubleshooting"
+msgstr "Dépannage"
+
+#: src/kolibri_app/view.py:305
+msgid "Help"
+msgstr "Aide"
+
+#: src/kolibri_app/view.py:402
+msgid "Save file"
+msgstr "Enregistrer le fichier"
+
+#: src/kolibri_app/windows/taskbar_icon.py:301
+msgid "Kolibri"
+msgstr "Kolibri"
+
+#: src/kolibri_app/windows/taskbar_icon.py:301
+msgid "Kolibri is starting... Please wait."
+msgstr "Kolibri démarre... Veuillez patienter."
+
+#: src/kolibri_app/windows/taskbar_icon.py:308
+msgid "Kolibri is running"
+msgstr "Kolibri est en cours d'exécution"
+
+#: src/kolibri_app/windows/taskbar_icon.py:309
+msgid "Kolibri is ready"
+msgstr "Kolibri est prêt"
+
+#: src/kolibri_app/windows/taskbar_icon.py:316
+#, python-brace-format
+msgid "Kolibri failed to start.\n"
+"Check logs at: {}"
+msgstr "Kolibri n'a pas pu démarrer.\n"
+"Vérifier les journaux à : {}"
+
+#: src/kolibri_app/windows/taskbar_icon.py:318
+msgid "Kolibri is experiencing an error"
+msgstr "Kolibri rencontre une erreur"
+
+#: src/kolibri_app/windows/taskbar_icon.py:346
+msgid "Open Kolibri App"
+msgstr "Ouvrir l'appli Kolibri"
+
+#: src/kolibri_app/windows/taskbar_icon.py:354
+msgid "Open Kolibri App after sign in"
+msgstr "Ouvrir l'appli Kolibri après la connexion"
+
+#: src/kolibri_app/windows/taskbar_icon.py:361
+msgid "Run Kolibri service on Windows startup"
+msgstr "Lancer le service Kolibri au démarrage de Windows"
+
+#: src/kolibri_app/windows/taskbar_icon.py:369
+msgid "Run Kolibri service on Windows startup (Unavailable)"
+msgstr "Lancer le service Kolibri au démarrage de Windows (indisponible)"
+
+#: src/kolibri_app/windows/taskbar_icon.py:378
+msgid "Exit"
+msgstr "Sortir"
+
+#: src/kolibri_app/windows/taskbar_icon.py:387
+msgid "Kolibri service is not ready yet"
+msgstr "Le service Kolibri n'est pas encore prêt"
+
+#: src/kolibri_app/windows/taskbar_icon.py:388
+msgid "Info"
+msgstr "Information"
+
+#. i18n: Status of a setting. Fills the {} in "Opening Kolibri App after sign in has been {}" and "Automatic startup has been {}."
+#: src/kolibri_app/windows/taskbar_icon.py:411
+#: src/kolibri_app/windows/taskbar_icon.py:484
+msgid "enabled"
+msgstr "activé"
+
+#. i18n: Status of a setting. Fills the {} in "Opening Kolibri App after sign in has been {}" and "Automatic startup has been {}."
+#: src/kolibri_app/windows/taskbar_icon.py:414
+#: src/kolibri_app/windows/taskbar_icon.py:484
+msgid "disabled"
+msgstr "désactivé"
+
+#: src/kolibri_app/windows/taskbar_icon.py:417
+msgid "Kolibri App Setting Updated"
+msgstr "Paramètre de l'appli Kolibri mis à jour"
+
+#: src/kolibri_app/windows/taskbar_icon.py:418
+#, python-brace-format
+msgid "Opening Kolibri App after sign in has been {}"
+msgstr "Ouverture de l'appli Kolibri après la connexion : {}"
+
+#: src/kolibri_app/windows/taskbar_icon.py:426
+msgid "Kolibri App Setting Error"
+msgstr "Erreur de paramétrage de l'appli Kolibri"
+
+#: src/kolibri_app/windows/taskbar_icon.py:427
+msgid "Failed to change the Kolibri App startup setting"
+msgstr "Échec de la modification du paramètre de démarrage de l'appli Kolibri"
+
+#: src/kolibri_app/windows/taskbar_icon.py:454
+msgid "Administrator rights are required to change this setting."
+msgstr "Les droits d'administrateur sont nécessaires pour modifier ce paramètre."
+
+#: src/kolibri_app/windows/taskbar_icon.py:455
+#: src/kolibri_app/windows/taskbar_icon.py:472
+msgid "Error"
+msgstr "Erreur"
+
+#: src/kolibri_app/windows/taskbar_icon.py:471
+#, python-brace-format
+msgid "An error occurred while changing the service setting: {}"
+msgstr "Une erreur s'est produite lors de la modification du paramètre de service : {}"
+
+#: src/kolibri_app/windows/taskbar_icon.py:486
+msgid "Kolibri Service Updated"
+msgstr "Service Kolibri mis à jour"
+
+#: src/kolibri_app/windows/taskbar_icon.py:487
+#, python-brace-format
+msgid "Automatic startup has been {}."
+msgstr "Le démarrage automatique a été {}."
+
+#: src/kolibri_app/windows/taskbar_icon.py:500
+msgid "Kolibri Service Error"
+msgstr "Erreur de service Kolibri"
+
+#: src/kolibri_app/windows/taskbar_icon.py:501
+msgid "Failed to update the service startup setting."
+msgstr "Échec de la mise à jour du paramètre de démarrage du service."
 

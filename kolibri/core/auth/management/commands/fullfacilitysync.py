@@ -18,7 +18,7 @@ from kolibri.core.device.models import DevicePermissions
 from kolibri.core.device.utils import device_provisioned
 from kolibri.core.device.utils import provision_device
 from kolibri.core.discovery.utils.network.client import NetworkClient
-from kolibri.core.tasks.management.commands.base import AsyncCommand
+from kolibri.core.tasks.management.base import AsyncCommand
 from kolibri.core.utils.urls import reverse_path
 
 
@@ -93,13 +93,15 @@ class Command(AsyncCommand):
                 username = input(
                     "Please enter username of account that will become the superuser on this device: "
                 )
-            if not FacilityUser.objects.filter(username=username).exists():
-                self.stderr.write(f"User with username {username} does not exist")
+            user = FacilityUser.objects.filter(
+                username=username, dataset_id=dataset_id
+            ).first()
+            if user is None:
+                self.stderr.write(
+                    f"User with username {username} does not exist in the synced facility"
+                )
                 username = None
                 continue
-
-            # make the user with the given credentials, a superuser for this device
-            user = FacilityUser.objects.get(username=username, dataset_id=dataset_id)
 
             # create permissions for the authorized user
             DevicePermissions.objects.update_or_create(

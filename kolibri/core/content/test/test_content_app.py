@@ -685,6 +685,46 @@ class ContentNodeAPITestCase(ContentNodeAPIBase, APITestCase):
         )
         self.assertEqual(response.data[0]["title"], "c1")
 
+    def test_contentnode_random(self):
+        response = self.client.get(
+            reverse("kolibri:core:contentnode-random"), data={"max_results": 2}
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.data), 2)
+
+    def test_contentnode_random_non_integer_max_results(self):
+        response = self.client.get(
+            reverse("kolibri:core:contentnode-random"), data={"max_results": "abc"}
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.data[0]["metadata"]["field"], "max_results")
+
+    def test_contentnode_random_negative_max_results(self):
+        response = self.client.get(
+            reverse("kolibri:core:contentnode-random"), data={"max_results": -1}
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.data[0]["metadata"]["field"], "max_results")
+
+    def test_contentnode_random_max_results_above_limit(self):
+        response = self.client.get(
+            reverse("kolibri:core:contentnode-random"), data={"max_results": 101}
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.data[0]["metadata"]["field"], "max_results")
+
+    def test_contentnode_random_huge_max_results(self):
+        response = self.client.get(
+            reverse("kolibri:core:contentnode-random"),
+            data={"max_results": "99999999999999999999"},
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.data[0]["metadata"]["field"], "max_results")
+
+    def test_contentnode_random_default_max_results(self):
+        response = self.client.get(reverse("kolibri:core:contentnode-random"))
+        self.assertEqual(response.status_code, 200)
+
     def test_related_filter(self):
         c1_id = content.ContentNode.objects.get(title="c1").id
         response = self.client.get(
@@ -1947,6 +1987,17 @@ class ContentNodeAPITestCase(ContentNodeAPIBase, APITestCase):
         response = self.client.get(
             reverse("kolibri:core:contentnode-list"), data={"search": "!?,"}
         )
+        self.assertEqual(len(response.data), len(unfiltered.data))
+
+    def test_contentnode_list_resource_types_param_is_ignored(self):
+        # resource_types has no metadata bitmasks, so it is not a filter.
+        unfiltered = self.client.get(reverse("kolibri:core:contentnode-list"))
+        self.assertGreater(len(unfiltered.data), 0)
+        response = self.client.get(
+            reverse("kolibri:core:contentnode-list"),
+            data={"resource_types": "OqyPqhxW"},
+        )
+        self.assertEqual(response.status_code, 200)
         self.assertEqual(len(response.data), len(unfiltered.data))
 
     def test_publiccontentnode_list(self):
@@ -3378,6 +3429,48 @@ class ChannelThumbnailViewTestCase(APITestCase):
             reverse("kolibri:core:channel-thumbnail", args=[self.channel_metadata.id])
         )
         self.assertEqual(response.status_code, 404)
+
+    def test_channel_thumbnail_view_malformed_header(self):
+        self.channel_metadata.thumbnail = "not-a-data-uri,abcd"
+        self.channel_metadata.save()
+        response = self.client.get(
+            reverse("kolibri:core:channel-thumbnail", args=[self.channel_metadata.id])
+        )
+        self.assertEqual(response.status_code, 404)
+
+    def test_channel_thumbnail_view_corrupt_base64(self):
+        self.channel_metadata.thumbnail = "data:image/png;base64,abc"
+        self.channel_metadata.save()
+        response = self.client.get(
+            reverse("kolibri:core:channel-thumbnail", args=[self.channel_metadata.id])
+        )
+        self.assertEqual(response.status_code, 404)
+
+    def test_channel_thumbnail_view_non_image_mimetype(self):
+        self.channel_metadata.thumbnail = (
+            "data:text/html;base64,PHNjcmlwdD5hbGVydCgxKTwvc2NyaXB0Pg=="
+        )
+        self.channel_metadata.save()
+        response = self.client.get(
+            reverse("kolibri:core:channel-thumbnail", args=[self.channel_metadata.id])
+        )
+        self.assertEqual(response.status_code, 404)
+        self.assertNotIn(b"<script>", response.content)
+
+    def test_channel_thumbnail_view_svg_mimetype_is_served(self):
+        # image/svg+xml passes the image/* filter and is served. (CSP
+        # script-src blocks any inline script if the SVG is opened directly
+        # at this URL.)
+        self.channel_metadata.thumbnail = (
+            "data:image/svg+xml;base64,"
+            "PHN2ZyB4bWxucz0naHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmcnPjwvc3ZnPg=="
+        )
+        self.channel_metadata.save()
+        response = self.client.get(
+            reverse("kolibri:core:channel-thumbnail", args=[self.channel_metadata.id])
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Content-Type"], "image/svg+xml")
 
 
 class ShareFileViewTestCase(APITestCase):

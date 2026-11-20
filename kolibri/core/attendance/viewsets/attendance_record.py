@@ -66,7 +66,9 @@ class BulkUpdateSerializer(Serializer):
         records = data.get("records", [])
         user_ids = {r["user"] for r in records}
         existing_ids = set(
-            FacilityUser.objects.filter(id__in=user_ids).values_list("id", flat=True)
+            FacilityUser.objects.filter(
+                id__in=user_ids, dataset_id=data["attendance_session"].dataset_id
+            ).values_list("id", flat=True)
         )
         missing = user_ids - existing_ids
         if missing:
@@ -132,6 +134,7 @@ class AttendanceRecordViewSet(ReadOnlyValuesViewset):
                     records_to_create.append(record)
             if records_to_create:
                 AttendanceRecord.objects.bulk_create(records_to_create)
+            session.save()
         all_records = AttendanceRecord.objects.filter(
             attendance_session=session, user_id__in=user_ids
         )

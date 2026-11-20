@@ -2,6 +2,7 @@
 
   <form
     class="library-search-bar"
+    role="search"
     @submit.prevent="handleSubmit"
   >
     <div
@@ -18,9 +19,10 @@
       <input
         :id="inputId"
         ref="searchInput"
+        data-skip-nav-target
         :value="keywordsInput"
         type="search"
-        :class="['search-input', $computedClass(placeholderStyle)]"
+        class="search-input"
         :style="{ color: 'var(--tokens-text)' }"
         dir="auto"
         :placeholder="placeholder || findSomethingToLearn$()"
@@ -122,7 +124,7 @@
     components: {
       SearchAutocompleteDropdown,
     },
-    setup() {
+    setup(props, { expose }) {
       const route = useRoute();
       const router = useRouter();
       const { genContentLinkBackLinkCurrentPage } = useContentLink();
@@ -136,6 +138,7 @@
         clearKeywords,
         selectFilterSuggestion,
         selectFilterCombination,
+        displayingSearchResults,
       } = injectBaseSearch();
       const { recentSearches, addSearch } = useRecentSearches(currentUserId);
       const { resumableContentNodes } = useLearnerResources();
@@ -223,6 +226,18 @@
       watch(announceableCount, count => {
         if (count > 0) {
           sendPoliteMessage(autocompleteResultsAvailable$({ count }));
+        }
+      });
+
+      // Keep user in search area after the last filter is cleared
+      // so they don't get lost. Only when focus was actually lost, so a
+      // pill that keeps its own focus isn't overridden.
+      watch(displayingSearchResults, (isSearching, wasSearching) => {
+        if (wasSearching && !isSearching && document.activeElement === document.body) {
+          const el = get(searchInput);
+          if (el) {
+            el.focus();
+          }
         }
       });
 
@@ -390,6 +405,12 @@
         set(hoveredFilter, filter);
       }
 
+      // Public: lets the page return focus here when another control goes away
+      function focus() {
+        get(searchInput).focus();
+      }
+      expose({ focus });
+
       function handleClear() {
         clearKeywords();
         keyWordAutoCompleteHandler('');
@@ -431,13 +452,6 @@
         default: '',
       },
     },
-    computed: {
-      placeholderStyle() {
-        // Browsers apply their own ::placeholder colour rather than inheriting the
-        // input's, and theirs does not meet contrast requirements.
-        return { '::placeholder': { color: this.$themeTokens.annotation, opacity: 1 } };
-      },
-    },
   };
 
 </script>
@@ -476,6 +490,13 @@
     background: transparent;
     border: 0;
     outline: none;
+
+    // Browsers apply their own ::placeholder colour rather than inheriting the
+    // input's, and theirs does not meet contrast requirements.
+    &::placeholder {
+      color: var(--tokens-annotation);
+      opacity: 1;
+    }
 
     /* Remove browser-default search input clear icon */
     &::-webkit-search-cancel-button {
